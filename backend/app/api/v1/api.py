@@ -8,4 +8,4 @@ api_router.include_router(organizations.router, prefix="/orgs", tags=["Organizat
 api_router.include_router(integrations.router, prefix="/integrations", tags=["Integrations"])
 api_router.include_router(webhooks.router, prefix="/webhooks", tags=["Webhooks"])
 api_router.include_router(onboarding.router, prefix="/onboarding", tags=["onboarding"])
-api_router.include_router(organizations.router, prefix="/organizations", tags=["organizations"])
+## api_router.include_router(organizations.router, prefix="/organizations", tags=["organizations"])

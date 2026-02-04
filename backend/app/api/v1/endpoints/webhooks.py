@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, BackgroundTasks
 from app.services.intelligence.llm_engine import analyze_code
+from app.services.delivery.notion_bot import notion_bot
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
 import os
@@ -149,6 +150,12 @@ async def save_scan_to_db(org_id, repo, pr_id, risk_data, pr_url):
 @router.post("/github/{org_id}")
 async def handle_github_webhook(org_id: str, request: Request):
     try:
+        # Check if body exists before parsing
+        body = await request.body()
+        if not body:
+            logger.info(f"Empty body received for Org: {org_id}. Skipping.")
+            return {"status": "skipped", "message": "Empty body"}
+        
         payload = await request.json()
         event_type = request.headers.get("X-GitHub-Event")
 
@@ -182,18 +189,15 @@ async def handle_github_webhook(org_id: str, request: Request):
             # 3. AI ANALYSIS
             risk_analysis = await analyze_code(diff_text, {"title": title, "body": body})
             
-            # 4. SAVE TO DB (So Dashboard sees it)
-            await save_scan_to_db(org_id, repo_name, pr_number, risk_analysis, pr_url)
+        # 4. SAVE TO DB (So Dashboard sees it)
+        await save_scan_to_db(org_id, repo_name, pr_number, risk_analysis, pr_url)
 
-            # 5. ALERTS (Using User's Slack/Jira credentials)
-            if risk_analysis.get("risk_score", 0) > 5:
-                # Slack
-                if creds["slack_token"] and creds["slack_channel"]:
-                    await send_slack_alert(creds, repo_name, pr_number, risk_analysis)
-                
-                # Jira
-                if creds["jira_url"] and creds["jira_token"]:
-                    create_jira_ticket(creds, repo_name, pr_number, title, risk_analysis, pr_url)
+        event_data = {
+            "summary": f"PR #{pr_number} in {repo_name}",
+            "url": pr_url,
+            "source": "github"
+        }
+        await dispatch_notifications(org_id, risk_analysis, event_data)
 
         return {"status": "processed"}
 
@@ -227,3 +231,24 @@ def create_jira_ticket(creds, repo, pr_id, pr_title, risk_data, pr_url):
         logger.info(f"🎫 Jira Ticket Created in Project {creds['jira_project_key']}")
     except Exception as e:
         logger.error(f"❌ Jira Error: {e}")
+
+@router.post("/slack/actions")
+async def handle_slack_interactive(request: Request, background_tasks: BackgroundTasks):
+    form_data = await request.form()
+    payload = json.loads(form_data["payload"])
+    
+    action = payload["actions"][0]
+    
+    if action["action_id"] == "trigger_notion_pm":
+        # Extract context from the button value we set earlier
+        pr_url = action["value"]
+        
+        # We use BackgroundTasks so Slack doesn't timeout (3s limit)
+        background_tasks.add_task(
+            notion_bot.create_incident_report,
+            analysis={"reason": "Manual Trigger from Slack", "risk_score": 8}, # You'd fetch actual analysis from DB
+            event_summary="Developer Initiated Report",
+            pr_url=pr_url
+        )
+        
+    return {"status": "ok"}

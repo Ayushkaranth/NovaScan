@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     TEST_GITHUB_TOKEN: Optional[str] = None
     TEST_JIRA_URL: Optional[str] = None
     TEST_SLACK_TOKEN: Optional[str] = None
+    NOTION_TOKEN: str
+    NOTION_DATABASE_ID: str
 
     class Config:
         env_file = ".env"

@@ -1,23 +1,32 @@
 from app.services.delivery.slack_bot import send_alert as send_slack
 from app.services.delivery.jira_bot import post_jira_comment
+from app.services.delivery.notion_bot import notion_bot
 
 async def dispatch_notifications(org_id: str, analysis: dict, event: dict):
-    """
-    Decides where to send alerts based on Risk Score.
-    """
     risk_score = analysis.get("risk_score", 0)
+    is_risky = analysis.get("is_risky", False)
+    pr_url = event.get("url", "#")
+    notion_url = None
 
-    # Rule 1: Always send Slack DM for any risk
-    if analysis["is_risky"]:
-        await send_slack(org_id, analysis, event["summary"])
+    if not is_risky:
+        return
 
-    # Rule 2: If Risk is HIGH (>7) and it's related to a Jira Ticket, comment on it
-    if risk_score > 7 and event["source"] == "jira":
+    # Step 1: Always Create Notion Documentation
+    notion_res = await notion_bot.create_incident_report(
+        analysis=analysis,
+        event_summary=event["summary"],
+        pr_url=pr_url
+    )
+    if notion_res:
+        notion_url = notion_res.get("url")
+
+    # Step 2: Send Slack Alert with the newly created Notion link
+    await send_slack(org_id, analysis, event["summary"], pr_url, notion_url)
+
+    # Step 3: Jira Logic
+    if risk_score > 7 and event.get("source") == "jira":
         await post_jira_comment(
             org_id, 
-            event["source_id"], # The Ticket Key
-            analysis["reason"]
+            event["source_id"],
+            f"⚠️ NovaScan High Risk Alert ({risk_score}/10): {analysis['reason']}"
         )
-
-    # Rule 3: If it's a GitHub PR but linked to a Jira ticket (via Graph), alert Jira too
-    # (Future implementation using Graph Manager)

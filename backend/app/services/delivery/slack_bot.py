@@ -1,77 +1,50 @@
 import httpx
 from app.core.database import get_database
 
-async def send_alert(org_id: str, analysis: dict, event_summary: str):
-    """
-    Sends a formatted alert to the Organization's configured Slack Channel.
-    """
-    if not analysis["is_risky"]:
-        return # Don't spam if it's safe
-
+async def send_alert(org_id: str, analysis: dict, event_summary: str, pr_url: str, notion_url: str = None):
     db = get_database()
+    integration = await db["integrations"].find_one({"org_id": org_id, "platform": "slack"})
+    if not integration: return
 
-    # 1. Find the API Keys for this Org
-    integration = await db["integrations"].find_one({
-        "org_id": org_id, 
-        "platform": "slack"
-    })
-    
-    if not integration:
-        print(f"⚠️ No Slack integration found for Org {org_id}")
-        return
-
-    # 2. Get the specific channel to alert (stored in config)
-    # Defaulting to general if not set, but in a real app, user sets this.
     channel_id = integration.get("config", {}).get("slack_channel_id")
     bot_token = integration["credentials"]["bot_token"]
 
-    if not channel_id:
-        print("⚠️ No channel configured for alerts.")
-        return
+    blocks = [
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": "🚨 NovaScan Risk Alert"}
+        },
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*Analysis:*\n{analysis['reason']}"}
+        },
+        {
+            "type": "actions",
+            "elements": []
+        }
+    ]
 
-    # 3. Construct the Message (Block Kit)
-    message = {
-        "channel": channel_id,
-        "text": f"🚨 Risk Detected: {analysis['reason']}",
-        "blocks": [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": "🚨 Loop AI Risk Alert",
-                    "emoji": True
-                }
-            },
-            {
-                "type": "section",
-                "fields": [
-                    {"type": "mrkdwn", "text": f"*Event:*\n{event_summary}"},
-                    {"type": "mrkdwn", "text": f"*Risk Score:*\n{analysis['risk_score']}/10"}
-                ]
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*Analysis:*\n{analysis['reason']}\n\n*Suggestion:*\n{analysis['action_needed']}"
-                }
-            },
-            {
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": "🤖 Powered by Loop AI Core"}]
-            }
-        ]
-    }
+    # Add the automated Notion Report link
+    if notion_url:
+        blocks[2]["elements"].append({
+            "type": "button",
+            "text": {"type": "plain_text", "text": "📄 View Notion Report"},
+            "url": notion_url,
+            "style": "primary"
+        })
 
-    # 4. Send to Slack
+    # Add GitHub link
+    blocks[2]["elements"].append({
+        "type": "button",
+        "text": {"type": "plain_text", "text": "View PR"},
+        "url": pr_url
+    })
+
+    message = {"channel": channel_id, "blocks": blocks}
+
     async with httpx.AsyncClient() as client:
-        resp = await client.post(
+        await client.post(
             "https://slack.com/api/chat.postMessage",
             headers={"Authorization": f"Bearer {bot_token}"},
             json=message
         )
-        
-        if resp.json().get("ok"):
-            print("✅ Alert sent to Slack!")
-        else:
-            print(f"❌ Failed to send alert: {resp.text}")
