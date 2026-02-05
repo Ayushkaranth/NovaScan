@@ -20,53 +20,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # --- HELPER: GET CREDENTIALS FROM DB ---
-# async def get_org_credentials(org_id: str):
-#     """
-#     Fetches integration tokens (GitHub, Slack, Jira) from the user's database entry.
-#     """
-#     mongo_url = os.getenv("MONGODB_URL")
-#     if not mongo_url:
-#         logger.error("❌ MongoDB URL missing in .env")
-#         return None
-
-#     try:
-#         client = AsyncIOMotorClient(mongo_url)
-#         db = client.get_database("test") # CHANGE THIS if your DB name is different
-        
-#         # We assume you have a collection named 'organizations' or 'integrations'
-#         # Adjust this query to match your actual Database Schema
-#         org_data = await db.organizations.find_one({"_id": org_id})
-        
-#         if not org_data:
-#             # Fallback: Try looking up by a string ID if ObjectId fails
-#             from bson import ObjectId
-#             try:
-#                 org_data = await db.organizations.find_one({"_id": ObjectId(org_id)})
-#             except:
-#                 pass
-
-#         if not org_data:
-#             logger.warning(f"⚠️ No organization found for ID: {org_id}")
-#             return None
-            
-#         # Extract the 'settings' or 'integrations' object
-#         # structure depends on how your Frontend saves it. 
-#         # Here is a generic guess based on common patterns:
-#         settings = org_data.get("settings", {})
-        
-#         return {
-#             "github_token": settings.get("github_access_token"),
-#             "slack_token": settings.get("slack_bot_token"),
-#             "slack_channel": settings.get("slack_channel"),
-#             "jira_url": settings.get("jira_url"),
-#             "jira_email": settings.get("jira_email"),
-#             "jira_token": settings.get("jira_api_token"),
-#             "jira_project_key": settings.get("jira_project_key", "SCRUM") # Default to SCRUM if missing
-#         }
-        
-#     except Exception as e:
-#         logger.error(f"❌ Error fetching org credentials: {e}")
-#         return None
 
 async def get_org_credentials(org_id: str):
     """
@@ -147,24 +100,87 @@ async def save_scan_to_db(org_id, repo, pr_id, risk_data, pr_url):
         logger.error(f"❌ DB Save Error: {e}")
 
 # --- MAIN WEBHOOK HANDLER ---
+# @router.post("/github/{org_id}")
+# async def handle_github_webhook(org_id: str, request: Request):
+    # try:
+    #     # Check if body exists before parsing
+    #     body = await request.body()
+    #     if not body:
+    #         logger.info(f"Empty body received for Org: {org_id}. Skipping.")
+    #         return {"status": "skipped", "message": "Empty body"}
+        
+    #     payload = await request.json()
+    #     event_type = request.headers.get("X-GitHub-Event")
+
+    #     if event_type == "pull_request" and payload.get("action") in ["opened", "synchronize", "reopened"]:
+            
+    #         # 1. FETCH CREDENTIALS FOR THIS USER
+    #         creds = await get_org_credentials(org_id)
+    #         if not creds:
+    #             return {"status": "error", "message": "Organization not found or no credentials."}
+
+    #         pr = payload.get("pull_request")
+    #         pr_number = pr.get("number")
+    #         repo_name = payload.get("repository", {}).get("full_name")
+    #         title = pr.get("title")
+    #         body = pr.get("body", "") or ""
+    #         diff_url = pr.get("diff_url")
+    #         pr_url = pr.get("html_url")
+
+    #         logger.info(f"✅ Processing PR #{pr_number} for Org: {org_id}")
+
+    #         # 2. GET DIFF (Using User's GitHub Token)
+    #         diff_text = ""
+    #         if creds["github_token"]:
+    #             async with httpx.AsyncClient() as client:
+    #                 resp = await client.get(diff_url, headers={"Authorization": f"token {creds['github_token']}"}, follow_redirects=True)
+    #                 if resp.status_code == 200:
+    #                     diff_text = resp.text
+    #         else:
+    #             logger.warning("⚠️ No GitHub Token for this user. Analysis limited.")
+
+    #         # 3. AI ANALYSIS
+    #         risk_analysis = await analyze_code(diff_text, {"title": title, "body": body})
+            
+    #     # 4. SAVE TO DB (So Dashboard sees it)
+    #     await save_scan_to_db(org_id, repo_name, pr_number, risk_analysis, pr_url)
+
+    #     event_data = {
+    #         "summary": f"PR #{pr_number} in {repo_name}",
+    #         "url": pr_url,
+    #         "source": "github"
+    #     }
+    #     await dispatch_notifications(org_id, risk_analysis, event_data)
+
+    #     return {"status": "processed"}
+
+    # except Exception as e:
+    #     logger.error(f"❌ Error in webhook: {e}")
+    #     return {"status": "error", "message": str(e)}
+
 @router.post("/github/{org_id}")
 async def handle_github_webhook(org_id: str, request: Request):
+    # 1. Initialize variables at the top to avoid "UnboundLocalError"
+    repo_name = "Unknown Repo"
+    pr_number = 0
+    pr_url = ""
+    risk_analysis = {"risk_score": 0, "reason": "No analysis", "is_risky": False}
+
     try:
-        # Check if body exists before parsing
-        body = await request.body()
-        if not body:
-            logger.info(f"Empty body received for Org: {org_id}. Skipping.")
+        body_content = await request.body()
+        if not body_content:
             return {"status": "skipped", "message": "Empty body"}
         
         payload = await request.json()
         event_type = request.headers.get("X-GitHub-Event")
 
+        # Only process specific PR actions
         if event_type == "pull_request" and payload.get("action") in ["opened", "synchronize", "reopened"]:
             
-            # 1. FETCH CREDENTIALS FOR THIS USER
+            # Fetch credentials for the specific organization
             creds = await get_org_credentials(org_id)
             if not creds:
-                return {"status": "error", "message": "Organization not found or no credentials."}
+                return {"status": "error", "message": "Organization not found."}
 
             pr = payload.get("pull_request")
             pr_number = pr.get("number")
@@ -176,28 +192,29 @@ async def handle_github_webhook(org_id: str, request: Request):
 
             logger.info(f"✅ Processing PR #{pr_number} for Org: {org_id}")
 
-            # 2. GET DIFF (Using User's GitHub Token)
+            # Get Diff
             diff_text = ""
-            if creds["github_token"]:
+            if creds.get("github_token"):
                 async with httpx.AsyncClient() as client:
                     resp = await client.get(diff_url, headers={"Authorization": f"token {creds['github_token']}"}, follow_redirects=True)
                     if resp.status_code == 200:
                         diff_text = resp.text
-            else:
-                logger.warning("⚠️ No GitHub Token for this user. Analysis limited.")
 
-            # 3. AI ANALYSIS
+            # Trigger AI Analysis
             risk_analysis = await analyze_code(diff_text, {"title": title, "body": body})
             
-        # 4. SAVE TO DB (So Dashboard sees it)
-        await save_scan_to_db(org_id, repo_name, pr_number, risk_analysis, pr_url)
+            # Save to Database so the Frontend dashboard updates
+            await save_scan_to_db(org_id, repo_name, pr_number, risk_analysis, pr_url)
 
-        event_data = {
-            "summary": f"PR #{pr_number} in {repo_name}",
-            "url": pr_url,
-            "source": "github"
-        }
-        await dispatch_notifications(org_id, risk_analysis, event_data)
+            # Trigger Notifications (Slack/Jira)
+            event_data = {
+                "summary": f"PR #{pr_number} in {repo_name}",
+                "title": title,
+                "url": pr_url,
+                "repo": repo_name,
+                "pr_id": pr_number
+            }
+            await dispatch_notifications(creds, risk_analysis, event_data)
 
         return {"status": "processed"}
 
@@ -252,3 +269,24 @@ async def handle_slack_interactive(request: Request, background_tasks: Backgroun
         )
         
     return {"status": "ok"}
+
+async def dispatch_notifications(creds, risk_data, event_data):
+    """
+    Handles the logic for where to send alerts based on the risk score.
+    """
+    # Only alert if the risk is significant (e.g., score > 5)
+    if risk_data.get("risk_score", 0) > 5:
+        # Slack Alert
+        if creds.get("slack_token") and creds.get("slack_channel"):
+            await send_slack_alert(creds, event_data["repo"], event_data["pr_id"], risk_data)
+        
+        # Jira Ticket
+        if creds.get("jira_url") and creds.get("jira_token"):
+            create_jira_ticket(
+                creds, 
+                event_data["repo"], 
+                event_data["pr_id"], 
+                event_data["title"], 
+                risk_data, 
+                event_data["url"]
+            )
