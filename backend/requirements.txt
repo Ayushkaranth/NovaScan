@@ -18,6 +18,7 @@ python-multipart==0.0.9
 # --- AI & External Services ---
 google-genai==1.2.0
 google-generativeai
+slack-sdk
 httpx==0.26.0
 python-dotenv==1.0.1
 
