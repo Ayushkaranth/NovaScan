@@ -1,16 +1,17 @@
 from fastapi import APIRouter, Request, BackgroundTasks
-from app.services.intelligence.llm_engine import analyze_code
-from app.services.delivery.notion_bot import notion_bot
-from motor.motor_asyncio import AsyncIOMotorClient
-from datetime import datetime
+import json
 import os
 import logging
 import httpx
+from datetime import datetime
 from dotenv import load_dotenv
-from app.core.database import get_database 
 from bson import ObjectId
 
-# Load Environment Variables (Only for DB connection now)
+from app.services.intelligence.llm_engine import analyze_code
+from app.services.delivery.notion_bot import notion_bot  # Fixed Import
+from app.core.database import get_database 
+
+# Load Environment Variables
 load_dotenv()
 
 # Configure Logging
@@ -19,23 +20,16 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# --- HELPER: GET CREDENTIALS FROM DB ---
-
+# --- HELPER: GET CREDENTIALS ---
 async def get_org_credentials(org_id: str):
-    """
-    Fetches tokens using the centralized get_database helper.
-    """
     try:
-        db = get_database() # This will now correctly use 'loop'
-        
-        # Use the "Safe Search" we discussed to handle both String and ObjectId
+        db = get_database()
         query = {
             "$or": [
                 {"_id": org_id},
                 {"_id": ObjectId(org_id) if ObjectId.is_valid(org_id) else None}
             ]
         }
-        
         org_data = await db["organizations"].find_one(query)
         
         if not org_data:
@@ -57,35 +51,12 @@ async def get_org_credentials(org_id: str):
         return None
 
 # --- HELPER: SAVE SCAN TO DB ---
-# async def save_scan_to_db(org_id, repo, pr_id, risk_data, pr_url):
-#     mongo_url = os.getenv("MONGODB_URL")
-#     try:
-#         client = AsyncIOMotorClient(mongo_url)
-#         db = client.get_database("test")
-#         collection = db.get_collection("scans")
-        
-#         scan_record = {
-#             "org_id": org_id,
-#             "repo": repo,
-#             "pr_id": pr_id,
-#             "risk_score": risk_data.get("risk_score", 0),
-#             "is_risky": risk_data.get("is_risky", False),
-#             "summary": risk_data.get("reason", "No summary"),
-#             "timestamp": datetime.utcnow(),
-#             "pr_url": pr_url
-#         }
-#         await collection.insert_one(scan_record)
-#         logger.info("💾 Scan result saved to MongoDB!")
-#     except Exception as e:
-#         logger.error(f"❌ DB Save Error: {e}")
-
 async def save_scan_to_db(org_id, repo, pr_id, risk_data, pr_url):
     try:
-        db = get_database() # This ensures scans go to the 'loop' database
+        db = get_database()
         collection = db.get_collection("scans")
-        
         scan_record = {
-            "org_id": str(org_id), # Save as string to match our frontend query
+            "org_id": str(org_id),
             "repo": repo,
             "pr_id": pr_id,
             "risk_score": risk_data.get("risk_score", 0),
@@ -95,72 +66,13 @@ async def save_scan_to_db(org_id, repo, pr_id, risk_data, pr_url):
             "pr_url": pr_url
         }
         await collection.insert_one(scan_record)
-        logger.info("💾 Scan result saved to MongoDB collection 'scans' in 'loop' database!")
+        logger.info("💾 Scan result saved to MongoDB")
     except Exception as e:
         logger.error(f"❌ DB Save Error: {e}")
 
-# --- MAIN WEBHOOK HANDLER ---
-# @router.post("/github/{org_id}")
-# async def handle_github_webhook(org_id: str, request: Request):
-    # try:
-    #     # Check if body exists before parsing
-    #     body = await request.body()
-    #     if not body:
-    #         logger.info(f"Empty body received for Org: {org_id}. Skipping.")
-    #         return {"status": "skipped", "message": "Empty body"}
-        
-    #     payload = await request.json()
-    #     event_type = request.headers.get("X-GitHub-Event")
-
-    #     if event_type == "pull_request" and payload.get("action") in ["opened", "synchronize", "reopened"]:
-            
-    #         # 1. FETCH CREDENTIALS FOR THIS USER
-    #         creds = await get_org_credentials(org_id)
-    #         if not creds:
-    #             return {"status": "error", "message": "Organization not found or no credentials."}
-
-    #         pr = payload.get("pull_request")
-    #         pr_number = pr.get("number")
-    #         repo_name = payload.get("repository", {}).get("full_name")
-    #         title = pr.get("title")
-    #         body = pr.get("body", "") or ""
-    #         diff_url = pr.get("diff_url")
-    #         pr_url = pr.get("html_url")
-
-    #         logger.info(f"✅ Processing PR #{pr_number} for Org: {org_id}")
-
-    #         # 2. GET DIFF (Using User's GitHub Token)
-    #         diff_text = ""
-    #         if creds["github_token"]:
-    #             async with httpx.AsyncClient() as client:
-    #                 resp = await client.get(diff_url, headers={"Authorization": f"token {creds['github_token']}"}, follow_redirects=True)
-    #                 if resp.status_code == 200:
-    #                     diff_text = resp.text
-    #         else:
-    #             logger.warning("⚠️ No GitHub Token for this user. Analysis limited.")
-
-    #         # 3. AI ANALYSIS
-    #         risk_analysis = await analyze_code(diff_text, {"title": title, "body": body})
-            
-    #     # 4. SAVE TO DB (So Dashboard sees it)
-    #     await save_scan_to_db(org_id, repo_name, pr_number, risk_analysis, pr_url)
-
-    #     event_data = {
-    #         "summary": f"PR #{pr_number} in {repo_name}",
-    #         "url": pr_url,
-    #         "source": "github"
-    #     }
-    #     await dispatch_notifications(org_id, risk_analysis, event_data)
-
-    #     return {"status": "processed"}
-
-    # except Exception as e:
-    #     logger.error(f"❌ Error in webhook: {e}")
-    #     return {"status": "error", "message": str(e)}
-
+# --- WEBHOOK HANDLER ---
 @router.post("/github/{org_id}")
 async def handle_github_webhook(org_id: str, request: Request):
-    # 1. Initialize variables at the top to avoid "UnboundLocalError"
     repo_name = "Unknown Repo"
     pr_number = 0
     pr_url = ""
@@ -174,10 +86,7 @@ async def handle_github_webhook(org_id: str, request: Request):
         payload = await request.json()
         event_type = request.headers.get("X-GitHub-Event")
 
-        # Only process specific PR actions
         if event_type == "pull_request" and payload.get("action") in ["opened", "synchronize", "reopened"]:
-            
-            # Fetch credentials for the specific organization
             creds = await get_org_credentials(org_id)
             if not creds:
                 return {"status": "error", "message": "Organization not found."}
@@ -200,13 +109,13 @@ async def handle_github_webhook(org_id: str, request: Request):
                     if resp.status_code == 200:
                         diff_text = resp.text
 
-            # Trigger AI Analysis
+            # AI Analysis
             risk_analysis = await analyze_code(diff_text, {"title": title, "body": body})
             
-            # Save to Database so the Frontend dashboard updates
+            # Save to DB
             await save_scan_to_db(org_id, repo_name, pr_number, risk_analysis, pr_url)
 
-            # Trigger Notifications (Slack/Jira)
+            # Trigger Dispatch
             event_data = {
                 "summary": f"PR #{pr_number} in {repo_name}",
                 "title": title,
@@ -222,63 +131,30 @@ async def handle_github_webhook(org_id: str, request: Request):
         logger.error(f"❌ Error in webhook: {e}")
         return {"status": "error", "message": str(e)}
 
-# --- ALERT FUNCTIONS (Now accept 'creds') ---
-async def send_slack_alert(creds, repo, pr_id, risk_data):
-    try:
-        from slack_sdk import WebClient
-        client = WebClient(token=creds["slack_token"])
-        text = f"🚨 *Loop Risk Alert: HIGH*\n*Repo:* {repo} | *PR:* #{pr_id}\n*Score:* {risk_data.get('risk_score')}/10\n*Reason:* {risk_data.get('reason')}"
-        client.chat_postMessage(channel=creds["slack_channel"], text=text)
-        logger.info(f"✅ Slack alert sent to #{creds['slack_channel']}")
-    except Exception as e:
-        logger.error(f"❌ Slack Error: {e}")
-
-def create_jira_ticket(creds, repo, pr_id, pr_title, risk_data, pr_url):
-    try:
-        from jira import JIRA
-        jira = JIRA(server=creds["jira_url"], basic_auth=(creds["jira_email"], creds["jira_token"]))
-        
-        issue_dict = {
-            'project': {'key': creds["jira_project_key"]}, 
-            'summary': f"[Risk Detected] PR #{pr_id}: {pr_title}",
-            'description': f"Risk Score: {risk_data.get('risk_score')}/10\nReason: {risk_data.get('reason')}\nLink: {pr_url}",
-            'issuetype': {'name': 'Task'},
-        }
-        jira.create_issue(fields=issue_dict)
-        logger.info(f"🎫 Jira Ticket Created in Project {creds['jira_project_key']}")
-    except Exception as e:
-        logger.error(f"❌ Jira Error: {e}")
-
-@router.post("/slack/actions")
-async def handle_slack_interactive(request: Request, background_tasks: BackgroundTasks):
-    form_data = await request.form()
-    payload = json.loads(form_data["payload"])
-    
-    action = payload["actions"][0]
-    
-    if action["action_id"] == "trigger_notion_pm":
-        # Extract context from the button value we set earlier
-        pr_url = action["value"]
-        
-        # We use BackgroundTasks so Slack doesn't timeout (3s limit)
-        background_tasks.add_task(
-            notion_bot.create_incident_report,
-            analysis={"reason": "Manual Trigger from Slack", "risk_score": 8}, # You'd fetch actual analysis from DB
-            event_summary="Developer Initiated Report",
-            pr_url=pr_url
-        )
-        
-    return {"status": "ok"}
-
+# --- ALERT DISPATCHER ---
 async def dispatch_notifications(creds, risk_data, event_data):
     """
     Handles the logic for where to send alerts based on the risk score.
     """
-    # Only alert if the risk is significant (e.g., score > 5)
+    notion_url = None
+
+    # Step 1: Always Create Notion Documentation (Persistence)
+    # We do this first so we can include the link in Slack
+    notion_res = await notion_bot.create_incident_report(
+        analysis=risk_data,
+        event_summary=event_data["summary"],
+        pr_url=event_data["url"]
+    )
+    if notion_res:
+        notion_url = notion_res.get("url")
+        logger.info(f"📄 Notion report created: {notion_url}")
+
+    # Step 2: Send Alerts only if risk is significant
     if risk_data.get("risk_score", 0) > 5:
         # Slack Alert
         if creds.get("slack_token") and creds.get("slack_channel"):
-            await send_slack_alert(creds, event_data["repo"], event_data["pr_id"], risk_data)
+            # Pass notion_url to Slack alert for the direct link button
+            await send_slack_alert(creds, event_data["repo"], event_data["pr_id"], risk_data, notion_url)
         
         # Jira Ticket
         if creds.get("jira_url") and creds.get("jira_token"):
@@ -288,5 +164,76 @@ async def dispatch_notifications(creds, risk_data, event_data):
                 event_data["pr_id"], 
                 event_data["title"], 
                 risk_data, 
-                event_data["url"]
+                event_data["url"],
+                notion_url # Optional: Link to Notion in Jira description
             )
+
+async def send_slack_alert(creds, repo, pr_id, risk_data, notion_url=None):
+    try:
+        from slack_sdk import WebClient
+        client = WebClient(token=creds["slack_token"])
+        
+        # Constructing Block Kit message
+        blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "🚨 NovaScan Risk Alert"}
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Repo:* {repo} | *PR:* #{pr_id}\n*Score:* {risk_data.get('risk_score')}/10\n*Reason:* {risk_data.get('reason')}"}
+            },
+            {
+                "type": "actions",
+                "elements": []
+            }
+        ]
+        
+        if notion_url:
+            blocks[2]["elements"].append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": "📄 View Notion Report"},
+                "url": notion_url,
+                "style": "primary"
+            })
+            
+        client.chat_postMessage(channel=creds["slack_channel"], blocks=blocks)
+        logger.info(f"✅ Slack alert sent to #{creds['slack_channel']}")
+    except Exception as e:
+        logger.error(f"❌ Slack Error: {e}")
+
+def create_jira_ticket(creds, repo, pr_id, pr_title, risk_data, pr_url, notion_url=None):
+    try:
+        from jira import JIRA
+        jira = JIRA(server=creds["jira_url"], basic_auth=(creds["jira_email"], creds["jira_token"]))
+        
+        desc = f"Risk Score: {risk_data.get('risk_score')}/10\nReason: {risk_data.get('reason')}\nPR Link: {pr_url}"
+        if notion_url:
+            desc += f"\nDetailed Report: {notion_url}"
+
+        issue_dict = {
+            'project': {'key': creds["jira_project_key"]}, 
+            'summary': f"[Risk Detected] PR #{pr_id}: {pr_title}",
+            'description': desc,
+            'issuetype': {'name': 'Task'},
+        }
+        jira.create_issue(fields=issue_dict)
+        logger.info(f"🎫 Jira Ticket Created")
+    except Exception as e:
+        logger.error(f"❌ Jira Error: {e}")
+
+@router.post("/slack/actions")
+async def handle_slack_interactive(request: Request, background_tasks: BackgroundTasks):
+    form_data = await request.form()
+    payload = json.loads(form_data["payload"])
+    action = payload["actions"][0]
+    
+    if action["action_id"] == "trigger_notion_pm":
+        pr_url = action["value"]
+        background_tasks.add_task(
+            notion_bot.create_incident_report,
+            analysis={"reason": "Manual Trigger from Slack", "risk_score": 8},
+            event_summary="Developer Initiated Report",
+            pr_url=pr_url
+        )
+    return {"status": "ok"}
