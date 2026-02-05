@@ -10,6 +10,7 @@ from bson import ObjectId
 from app.services.intelligence.llm_engine import analyze_code
 from app.services.delivery.notion_bot import notion_bot  # Fixed Import
 from app.core.database import get_database 
+from slack_sdk import WebClient
 
 # Load Environment Variables
 load_dotenv()
@@ -168,39 +169,74 @@ async def dispatch_notifications(creds, risk_data, event_data):
                 notion_url # Optional: Link to Notion in Jira description
             )
 
-async def send_slack_alert(creds, repo, pr_id, risk_data, notion_url=None):
-    try:
-        from slack_sdk import WebClient
-        client = WebClient(token=creds["slack_token"])
+# async def send_slack_alert(creds, repo, pr_id, risk_data, notion_url=None):
+    # try:
+    #     from slack_sdk import WebClient
+    #     client = WebClient(token=creds["slack_token"])
         
-        # Constructing Block Kit message
-        blocks = [
-            {
-                "type": "header",
-                "text": {"type": "plain_text", "text": "🚨 NovaScan Risk Alert"}
-            },
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f"*Repo:* {repo} | *PR:* #{pr_id}\n*Score:* {risk_data.get('risk_score')}/10\n*Reason:* {risk_data.get('reason')}"}
-            },
-            {
-                "type": "actions",
-                "elements": []
-            }
-        ]
+    #     # Constructing Block Kit message
+    #     blocks = [
+    #         {
+    #             "type": "header",
+    #             "text": {"type": "plain_text", "text": "🚨 NovaScan Risk Alert"}
+    #         },
+    #         {
+    #             "type": "section",
+    #             "text": {"type": "mrkdwn", "text": f"*Repo:* {repo} | *PR:* #{pr_id}\n*Score:* {risk_data.get('risk_score')}/10\n*Reason:* {risk_data.get('reason')}"}
+    #         },
+    #         {
+    #             "type": "actions",
+    #             "elements": []
+    #         }
+    #     ]
         
-        if notion_url:
-            blocks[2]["elements"].append({
-                "type": "button",
-                "text": {"type": "plain_text", "text": "📄 View Notion Report"},
-                "url": notion_url,
-                "style": "primary"
-            })
+    #     if notion_url:
+    #         blocks[2]["elements"].append({
+    #             "type": "button",
+    #             "text": {"type": "plain_text", "text": "📄 View Notion Report"},
+    #             "url": notion_url,
+    #             "style": "primary"
+    #         })
             
-        client.chat_postMessage(channel=creds["slack_channel"], blocks=blocks)
-        logger.info(f"✅ Slack alert sent to #{creds['slack_channel']}")
-    except Exception as e:
-        logger.error(f"❌ Slack Error: {e}")
+    #     client.chat_postMessage(channel=creds["slack_channel"], blocks=blocks)
+    #     logger.info(f"✅ Slack alert sent to #{creds['slack_channel']}")
+    # except Exception as e:
+    #     logger.error(f"❌ Slack Error: {e}")
+
+async def send_slack_alert(creds, repo, pr_id, risk_data, notion_url=None):
+    client = WebClient(token=creds["slack_token"])
+    main_text = f"🚨 NovaScan Risk Alert: PR #{pr_id} in {repo}"
+
+    # Start with just the Header and Section
+    blocks = [
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": "🚨 NovaScan Risk Alert"}
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "type": "mrkdwn", "text": f"*Repo:* {repo} | *PR:* #{pr_id}\n*Score:* {risk_data.get('risk_score')}/10\n*Reason:* {risk_data.get('reason')}"
+                }
+        }
+    ]
+
+    # ONLY append the entire actions block if there is a URL
+    if notion_url:
+        blocks.append({
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "📄 View Notion Report"},
+                    "url": notion_url,
+                    "style": "primary"
+                }
+            ]
+        })
+
+    client.chat_postMessage(channel=creds["slack_channel"], text=main_text, blocks=blocks)
 
 def create_jira_ticket(creds, repo, pr_id, pr_title, risk_data, pr_url, notion_url=None):
     try:

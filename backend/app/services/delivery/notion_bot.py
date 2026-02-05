@@ -29,7 +29,7 @@ class NotionBot:
                 "Name": {"title": [{"text": {"content": f"NovaScan Alert: {event_summary}"}}]},
                 "Risk Level": {"select": {"name": self._get_risk_label(risk_score)}},
                 "Risk Score": {"number": risk_score},
-                "Status": {"status": {"name": "Triage"}},
+                "Status": {"status": {"name": "In Progress"}},
                 "Source PR": {"url": pr_url},
                 "Detected At": {"date": {"start": datetime.utcnow().isoformat()}}
             },
