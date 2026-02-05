@@ -1,7 +1,8 @@
 import axios from "axios";
+import { jwtDecode } from "jwt-decode";
 
 // This points to your running Backend
-const API_URL = "http://localhost:8000/api/v1";
+const API_URL = "http://127.0.0.1:8000/api/v1";
 
 const api = axios.create({
   baseURL: API_URL,
@@ -9,6 +10,19 @@ const api = axios.create({
     "Content-Type": "application/json",
   },
 });
+
+export const getUserFromToken = () => {
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("token");
+    if (!token) return null;
+    try {
+      return jwtDecode(token); // Returns { sub: email, role: 'hr', exp: ... }
+    } catch (e) {
+      return null;
+    }
+  }
+  return null;
+};
 
 // Automatic Interceptor:
 // Before sending any request, check if we have a Token saved in the browser.

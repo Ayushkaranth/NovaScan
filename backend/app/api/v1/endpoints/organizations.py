@@ -5,7 +5,7 @@ from app.api.v1.endpoints.auth import get_current_user
 from app.core.database import get_database
 from bson import ObjectId
 from datetime import datetime
-from typing import List
+from typing import List, Optional, Dict
 
 router = APIRouter()
 
@@ -71,3 +71,30 @@ async def list_user_organizations(current_user: User = Depends(get_current_user)
             p["created_at"] = datetime.utcnow()
             
     return projects
+
+@router.get("/my-dashboard")
+async def get_dashboard_data(current_user: User = Depends(get_current_user)):
+    db = get_database()
+    
+    # 1. Fetch Projects assigned to me
+    # If Manager: projects where I am a key in assignments
+    # If Employee: projects where I am in the list of a value in assignments
+    query = {
+        "$or": [
+            {f"assignments.{current_user.id}": {"$exists": True}},
+            {"members": current_user.id}
+        ]
+    }
+    projects = await db["organizations"].find(query).to_list(100)
+    
+    # 2. Fetch Unread Notifications
+    notifications = await db["notifications"].find({
+        "user_id": current_user.id,
+        "is_read": False
+    }).sort("created_at", -1).to_list(20)
+    
+    return {
+        "projects": projects,
+        "notifications": notifications,
+        "role": current_user.role # Ensure role is returned
+    }

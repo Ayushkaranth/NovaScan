@@ -13,6 +13,7 @@ class UserBase(BaseModel):
 # Properties to receive via API on creation
 class UserCreate(UserBase):
     password: str
+    role: str = "employee"
 
 # Properties to receive via API on update
 class UserUpdate(UserBase):
@@ -20,14 +21,15 @@ class UserUpdate(UserBase):
 
 # Properties stored in DB
 class UserInDB(UserBase):
-    # --- FIX: Added this field so _id is actually stored ---
     id: str = Field(alias="_id") 
     hashed_password: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
     current_org_id: Optional[str] = None
-    org_roles: Dict[str, str] = {} 
+    # We add a global role field (default to employee)
+    role: str = "employee" # "hr", "manager", "employee"
 
 # Properties to return to client
 class User(UserBase):
     id: str = Field(alias="_id")
     current_org_id: Optional[str] = None
+    role: str = "employee"
