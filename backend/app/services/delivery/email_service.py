@@ -1,36 +1,26 @@
-import smtplib
+import resend
 import logging
 import asyncio
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-def _send_email_sync(msg):
+# Configure Resend with your API Key
+resend.api_key = settings.RESEND_API_KEY
+
+def _send_email_api(payload):
     """
-    Internal synchronous function to handle the actual SMTP connection.
-    Supports both SSL (465) and TLS (587).
+    Sends email via HTTP (Port 443).
+    This bypasses all SMTP firewalls and blocking issues.
     """
     try:
-        # Check if we should use SSL (Port 465) or standard TLS (Port 587)
-        if settings.SMTP_PORT == 465:
-            # OPTION A: SSL Connection (Recommended for Cloud/Render)
-            with smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
-                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                server.send_message(msg)
-        else:
-            # OPTION B: TLS Connection (Standard for Port 587)
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
-                server.starttls() 
-                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                server.send_message(msg)
-                
+        response = resend.Emails.send(payload)
+        logger.info(f"✅ Email dispatched via Resend. ID: {response.get('id')}")
         return True
     except Exception as e:
-        logger.error(f"❌ SMTP Error during send: {str(e)}")
+        logger.error(f"❌ Resend API Error: {str(e)}")
         return False
-        
+
 async def send_manager_to_employee_alert(
     manager_name: str,
     manager_email: str,
@@ -40,16 +30,10 @@ async def send_manager_to_employee_alert(
     pr_url: str
 ):
     if not employee_emails:
-        logger.warning("⚠️ No employee emails assigned to this project. Skipping email.")
+        logger.warning("⚠️ No employee emails assigned. Skipping.")
         return
 
-    # 2. Setup the Identity (Fast, keeps running in main thread)
-    msg = MIMEMultipart()
-    msg['From'] = f"{manager_name} | NovaScan <{settings.SMTP_USER}>"
-    msg['To'] = ", ".join(employee_emails)
-    msg['Reply-To'] = manager_email
-    msg['Subject'] = f"🚨 SECURITY ALERT: High Risk in {project_name}"
-
+    # 1. Construct the HTML Body
     html_content = f"""
     <div style="font-family: sans-serif; max-width: 600px; border: 1px solid #eee; padding: 20px;">
         <h2 style="color: #e11d48;">High Risk Code Detected</h2>
@@ -70,15 +54,18 @@ async def send_manager_to_employee_alert(
         </p>
     </div>
     """
-    msg.attach(MIMEText(html_content, 'html'))
 
-    # 3. Offload the slow SMTP work to a separate thread
-    # This yields control immediately so the server stays responsive
-    try:
-        logger.info(f"📤 Attempting to send email to {len(employee_emails)} recipients...")
-        success = await asyncio.to_thread(_send_email_sync, msg)
-        
-        if success:
-            logger.info(f"✅ Security alert sent successfully.")
-    except Exception as e:
-        logger.error(f"❌ Failed to dispatch email thread: {str(e)}")
+    # 2. Prepare Payload
+    # Note: 'from' must be 'onboarding@resend.dev' until you verify your own domain.
+    # It works perfectly for testing.
+    payload = {
+        "from": "NovaScan Security <onboarding@resend.dev>",
+        "to": employee_emails,
+        "reply_to": manager_email,
+        "subject": f"🚨 SECURITY ALERT: High Risk in {project_name}",
+        "html": html_content
+    }
+
+    # 3. Send via Background Thread (Fast & Non-blocking)
+    logger.info(f"📤 Sending email via API to {len(employee_emails)} recipients...")
+    await asyncio.to_thread(_send_email_api, payload)

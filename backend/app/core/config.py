@@ -25,10 +25,7 @@ class Settings(BaseSettings):
     NOTION_TOKEN: str
     NOTION_DATABASE_ID: str
 
-    SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
-    SMTP_USER: str = str  # Your account for sending
-    SMTP_PASSWORD: str
+    RESEND_API_KEY: str
 
     class Config:
         env_file = ".env"
