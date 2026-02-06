@@ -179,8 +179,7 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
     db = get_database()
     notion_url = None
 
-    # --- STEP 1: FIX - ROBUST ORGANIZATION LOOKUP ---
-    # This query checks if the ID is stored as a simple String OR as a MongoDB ObjectId
+    # --- STEP 1: ROBUST ORGANIZATION LOOKUP ---
     query = {
         "$or": [
             {"_id": org_id},
@@ -198,10 +197,28 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
     manager_name = manager.get("full_name", "Project Manager") if manager else "Project Manager"
     manager_email = manager.get("email") if manager else settings.SMTP_USER
 
-    # Fetch Employee Emails
-    employee_ids = org.get("employee_ids", [])
-    employees = await db["users"].find({"_id": {"$in": employee_ids}}).to_list(length=100)
+    # --- STEP 1.5: SMART EMPLOYEE ID CONVERSION (THE FIX) ---
+    # This block fixes the "No employees found" bug by ensuring all IDs are ObjectIds
+    raw_ids = org.get("employee_ids", [])
+    target_ids = []
+
+    for uid in raw_ids:
+        # If it's a string that looks like a valid ObjectId, convert it
+        if isinstance(uid, str) and ObjectId.is_valid(uid):
+            target_ids.append(ObjectId(uid))
+        else:
+            # Otherwise (already ObjectId or invalid), keep it as is
+            target_ids.append(uid)
+
+    # Now search the users collection with the corrected list
+    employees = await db["users"].find({"_id": {"$in": target_ids}}).to_list(length=100)
     employee_emails = [emp["email"] for emp in employees]
+    
+    # Log success for verification
+    if employee_emails:
+        logger.info(f"👥 Found {len(employee_emails)} employees for email dispatch.")
+    else:
+        logger.warning(f"⚠️ No employee emails found. Raw IDs: {raw_ids} -> Target IDs: {target_ids}")
 
     # Step 2: Create Notion Documentation
     notion_res = await notion_bot.create_incident_report(
@@ -235,7 +252,7 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
 
     # Step 4: High Risk Gmail Alert (Manager -> Employees)
     # Triggered specifically for high-priority risks
-    if risk_score >= 7:
+    if risk_score >= 6:
         await send_manager_to_employee_alert(
             manager_name=manager_name,
             manager_email=manager_email,
