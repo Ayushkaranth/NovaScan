@@ -178,9 +178,16 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
     db = get_database()
     notion_url = None
 
-    # Step 1: Fetch Project & Team Context
-    # We need this to get the specific Manager and Employees assigned to this project
-    org = await db["organizations"].find_one({"_id": ObjectId(org_id)})
+    # --- STEP 1: FIX - ROBUST ORGANIZATION LOOKUP ---
+    # This query checks if the ID is stored as a simple String OR as a MongoDB ObjectId
+    query = {
+        "$or": [
+            {"_id": org_id},
+            {"_id": ObjectId(org_id) if ObjectId.is_valid(org_id) else None}
+        ]
+    }
+    org = await db["organizations"].find_one(query)
+    
     if not org:
         logger.warning(f"⚠️ Organization {org_id} not found for dispatch")
         return
@@ -236,6 +243,7 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
             risk_data=risk_data,
             pr_url=event_data["url"]
         )
+        
 async def send_slack_alert(creds, repo, pr_id, risk_data, notion_url=None):
     client = WebClient(token=creds["slack_token"])
     main_text = f"🚨 NovaScan Risk Alert: PR #{pr_id} in {repo}"
