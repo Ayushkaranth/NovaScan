@@ -197,28 +197,28 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
     manager_name = manager.get("full_name", "Project Manager") if manager else "Project Manager"
     manager_email = manager.get("email") if manager else settings.SMTP_USER
 
-    # --- STEP 1.5: SMART EMPLOYEE ID CONVERSION (THE FIX) ---
-    # This block fixes the "No employees found" bug by ensuring all IDs are ObjectIds
+    # --- STEP 1.5: UNIVERSAL EMPLOYEE LOOKUP (THE FIX) ---
+    # We search for BOTH the String ID and the ObjectId to ensure we find the user
     raw_ids = org.get("employee_ids", [])
-    target_ids = []
+    search_ids = []
 
     for uid in raw_ids:
-        # If it's a string that looks like a valid ObjectId, convert it
+        # 1. Always add the raw ID (Matches if DB has String)
+        search_ids.append(uid)
+        
+        # 2. If it looks like an ObjectId, add that version too (Matches if DB has ObjectId)
         if isinstance(uid, str) and ObjectId.is_valid(uid):
-            target_ids.append(ObjectId(uid))
-        else:
-            # Otherwise (already ObjectId or invalid), keep it as is
-            target_ids.append(uid)
+            search_ids.append(ObjectId(uid))
 
-    # Now search the users collection with the corrected list
-    employees = await db["users"].find({"_id": {"$in": target_ids}}).to_list(length=100)
+    # Search users using the "Universal List"
+    employees = await db["users"].find({"_id": {"$in": search_ids}}).to_list(length=100)
     employee_emails = [emp["email"] for emp in employees]
     
     # Log success for verification
     if employee_emails:
         logger.info(f"👥 Found {len(employee_emails)} employees for email dispatch.")
     else:
-        logger.warning(f"⚠️ No employee emails found. Raw IDs: {raw_ids} -> Target IDs: {target_ids}")
+        logger.warning(f"⚠️ No employee emails found. Raw IDs: {raw_ids} -> Search List: {search_ids}")
 
     # Step 2: Create Notion Documentation
     notion_res = await notion_bot.create_incident_report(
@@ -261,7 +261,7 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
             risk_data=risk_data,
             pr_url=event_data["url"]
         )
-
+        
 async def send_slack_alert(creds, repo, pr_id, risk_data, notion_url=None):
     client = WebClient(token=creds["slack_token"])
     main_text = f"🚨 NovaScan Risk Alert: PR #{pr_id} in {repo}"
