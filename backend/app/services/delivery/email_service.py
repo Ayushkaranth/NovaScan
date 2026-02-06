@@ -10,19 +10,27 @@ logger = logging.getLogger(__name__)
 def _send_email_sync(msg):
     """
     Internal synchronous function to handle the actual SMTP connection.
-    This runs in a separate thread to prevent blocking the main server.
+    Supports both SSL (465) and TLS (587).
     """
     try:
-        # 1. Connect with a strict timeout (prevents infinite hanging)
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
-            server.starttls()
-            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            server.send_message(msg)
+        # Check if we should use SSL (Port 465) or standard TLS (Port 587)
+        if settings.SMTP_PORT == 465:
+            # OPTION A: SSL Connection (Recommended for Cloud/Render)
+            with smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
+                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                server.send_message(msg)
+        else:
+            # OPTION B: TLS Connection (Standard for Port 587)
+            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
+                server.starttls() 
+                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                server.send_message(msg)
+                
         return True
     except Exception as e:
         logger.error(f"❌ SMTP Error during send: {str(e)}")
         return False
-
+        
 async def send_manager_to_employee_alert(
     manager_name: str,
     manager_email: str,
