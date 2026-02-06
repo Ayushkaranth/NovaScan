@@ -10,6 +10,7 @@ from bson import ObjectId
 from app.services.intelligence.llm_engine import analyze_code
 from app.services.delivery.notion_bot import notion_bot  # Fixed Import
 from app.core.database import get_database 
+from app.services.delivery.email_service import send_manager_to_employee_alert
 from slack_sdk import WebClient
 
 # Load Environment Variables
@@ -124,7 +125,7 @@ async def handle_github_webhook(org_id: str, request: Request):
                 "repo": repo_name,
                 "pr_id": pr_number
             }
-            await dispatch_notifications(creds, risk_analysis, event_data)
+            await dispatch_notifications(creds, risk_analysis, event_data, org_id)
 
         return {"status": "processed"}
 
@@ -133,14 +134,68 @@ async def handle_github_webhook(org_id: str, request: Request):
         return {"status": "error", "message": str(e)}
 
 # --- ALERT DISPATCHER ---
-async def dispatch_notifications(creds, risk_data, event_data):
+# async def dispatch_notifications(creds, risk_data, event_data):
+    # """
+    # Handles the logic for where to send alerts based on the risk score.
+    # """
+    # notion_url = None
+
+    # # Step 1: Always Create Notion Documentation (Persistence)
+    # # We do this first so we can include the link in Slack
+    # notion_res = await notion_bot.create_incident_report(
+    #     analysis=risk_data,
+    #     event_summary=event_data["summary"],
+    #     pr_url=event_data["url"]
+    # )
+    # if notion_res:
+    #     notion_url = notion_res.get("url")
+    #     logger.info(f"📄 Notion report created: {notion_url}")
+
+    # # Step 2: Send Alerts only if risk is significant
+    # if risk_data.get("risk_score", 0) > 5:
+    #     # Slack Alert
+    #     if creds.get("slack_token") and creds.get("slack_channel"):
+    #         # Pass notion_url to Slack alert for the direct link button
+    #         await send_slack_alert(creds, event_data["repo"], event_data["pr_id"], risk_data, notion_url)
+        
+    #     # Jira Ticket
+    #     if creds.get("jira_url") and creds.get("jira_token"):
+    #         create_jira_ticket(
+    #             creds, 
+    #             event_data["repo"], 
+    #             event_data["pr_id"], 
+    #             event_data["title"], 
+    #             risk_data, 
+    #             event_data["url"],
+    #             notion_url # Optional: Link to Notion in Jira description
+    #         )
+
+async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
     """
-    Handles the logic for where to send alerts based on the risk score.
+    Handles the logic for where to send alerts based on the risk score,
+    now including dynamic Manager-to-Employee Gmail alerts.
     """
+    db = get_database()
     notion_url = None
 
-    # Step 1: Always Create Notion Documentation (Persistence)
-    # We do this first so we can include the link in Slack
+    # Step 1: Fetch Project & Team Context
+    # We need this to get the specific Manager and Employees assigned to this project
+    org = await db["organizations"].find_one({"_id": ObjectId(org_id)})
+    if not org:
+        logger.warning(f"⚠️ Organization {org_id} not found for dispatch")
+        return
+
+    # Fetch Manager Identity
+    manager = await db["users"].find_one({"_id": org.get("manager_id")})
+    manager_name = manager.get("full_name", "Project Manager") if manager else "Project Manager"
+    manager_email = manager.get("email") if manager else settings.SMTP_USER
+
+    # Fetch Employee Emails
+    employee_ids = org.get("employee_ids", [])
+    employees = await db["users"].find({"_id": {"$in": employee_ids}}).to_list(length=100)
+    employee_emails = [emp["email"] for emp in employees]
+
+    # Step 2: Create Notion Documentation
     notion_res = await notion_bot.create_incident_report(
         analysis=risk_data,
         event_summary=event_data["summary"],
@@ -150,11 +205,12 @@ async def dispatch_notifications(creds, risk_data, event_data):
         notion_url = notion_res.get("url")
         logger.info(f"📄 Notion report created: {notion_url}")
 
-    # Step 2: Send Alerts only if risk is significant
-    if risk_data.get("risk_score", 0) > 5:
+    # Step 3: Send Alerts if risk is significant (> 5)
+    risk_score = risk_data.get("risk_score", 0)
+    
+    if risk_score > 5:
         # Slack Alert
         if creds.get("slack_token") and creds.get("slack_channel"):
-            # Pass notion_url to Slack alert for the direct link button
             await send_slack_alert(creds, event_data["repo"], event_data["pr_id"], risk_data, notion_url)
         
         # Jira Ticket
@@ -166,43 +222,20 @@ async def dispatch_notifications(creds, risk_data, event_data):
                 event_data["title"], 
                 risk_data, 
                 event_data["url"],
-                notion_url # Optional: Link to Notion in Jira description
+                notion_url
             )
 
-# async def send_slack_alert(creds, repo, pr_id, risk_data, notion_url=None):
-    # try:
-    #     from slack_sdk import WebClient
-    #     client = WebClient(token=creds["slack_token"])
-        
-    #     # Constructing Block Kit message
-    #     blocks = [
-    #         {
-    #             "type": "header",
-    #             "text": {"type": "plain_text", "text": "🚨 NovaScan Risk Alert"}
-    #         },
-    #         {
-    #             "type": "section",
-    #             "text": {"type": "mrkdwn", "text": f"*Repo:* {repo} | *PR:* #{pr_id}\n*Score:* {risk_data.get('risk_score')}/10\n*Reason:* {risk_data.get('reason')}"}
-    #         },
-    #         {
-    #             "type": "actions",
-    #             "elements": []
-    #         }
-    #     ]
-        
-    #     if notion_url:
-    #         blocks[2]["elements"].append({
-    #             "type": "button",
-    #             "text": {"type": "plain_text", "text": "📄 View Notion Report"},
-    #             "url": notion_url,
-    #             "style": "primary"
-    #         })
-            
-    #     client.chat_postMessage(channel=creds["slack_channel"], blocks=blocks)
-    #     logger.info(f"✅ Slack alert sent to #{creds['slack_channel']}")
-    # except Exception as e:
-    #     logger.error(f"❌ Slack Error: {e}")
-
+    # Step 4: High Risk Gmail Alert (Manager -> Employees)
+    # Triggered specifically for high-priority risks
+    if risk_score >= 7:
+        await send_manager_to_employee_alert(
+            manager_name=manager_name,
+            manager_email=manager_email,
+            employee_emails=employee_emails,
+            project_name=org.get("name", "Unknown Project"),
+            risk_data=risk_data,
+            pr_url=event_data["url"]
+        )
 async def send_slack_alert(creds, repo, pr_id, risk_data, notion_url=None):
     client = WebClient(token=creds["slack_token"])
     main_text = f"🚨 NovaScan Risk Alert: PR #{pr_id} in {repo}"
