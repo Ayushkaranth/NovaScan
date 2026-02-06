@@ -32,4 +32,5 @@ class UserInDB(UserBase):
 class User(UserBase):
     id: str = Field(alias="_id")
     current_org_id: Optional[str] = None
-    role: str = "employee"
+    # Change this line to allow None/Optional
+    role: Optional[str] = None
