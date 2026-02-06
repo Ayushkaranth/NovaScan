@@ -1,10 +1,27 @@
 import smtplib
 import logging
+import asyncio
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+def _send_email_sync(msg):
+    """
+    Internal synchronous function to handle the actual SMTP connection.
+    This runs in a separate thread to prevent blocking the main server.
+    """
+    try:
+        # 1. Connect with a strict timeout (prevents infinite hanging)
+        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
+            server.starttls()
+            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        logger.error(f"❌ SMTP Error during send: {str(e)}")
+        return False
 
 async def send_manager_to_employee_alert(
     manager_name: str,
@@ -18,15 +35,13 @@ async def send_manager_to_employee_alert(
         logger.warning("⚠️ No employee emails assigned to this project. Skipping email.")
         return
 
-    # 1. Setup the Identity
+    # 2. Setup the Identity (Fast, keeps running in main thread)
     msg = MIMEMultipart()
-    # This shows the Manager's Name in the inbox but uses your SMTP to send
     msg['From'] = f"{manager_name} | NovaScan <{settings.SMTP_USER}>"
     msg['To'] = ", ".join(employee_emails)
-    msg['Reply-To'] = manager_email  # Replies go to the real Manager
+    msg['Reply-To'] = manager_email
     msg['Subject'] = f"🚨 SECURITY ALERT: High Risk in {project_name}"
 
-    # 2. Construct HTML Body
     html_content = f"""
     <div style="font-family: sans-serif; max-width: 600px; border: 1px solid #eee; padding: 20px;">
         <h2 style="color: #e11d48;">High Risk Code Detected</h2>
@@ -49,13 +64,13 @@ async def send_manager_to_employee_alert(
     """
     msg.attach(MIMEText(html_content, 'html'))
 
-    # 3. Send via SMTP
+    # 3. Offload the slow SMTP work to a separate thread
+    # This yields control immediately so the server stays responsive
     try:
-        server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT)
-        server.starttls()
-        server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-        logger.info(f"✅ Security alert sent to {len(employee_emails)} employees.")
+        logger.info(f"📤 Attempting to send email to {len(employee_emails)} recipients...")
+        success = await asyncio.to_thread(_send_email_sync, msg)
+        
+        if success:
+            logger.info(f"✅ Security alert sent successfully.")
     except Exception as e:
-        logger.error(f"❌ SMTP Error: {str(e)}")
+        logger.error(f"❌ Failed to dispatch email thread: {str(e)}")
