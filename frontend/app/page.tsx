@@ -30,10 +30,10 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-3">
-            <Link href="/login">
+            <Link href="/auth">
               <span className="text-sm font-semibold text-slate-600 hover:text-slate-900 px-4 py-2 cursor-pointer transition-colors">Log in</span>
             </Link>
-            <Link href="/register">
+            <Link href="/auth">
               <Button size="sm" className="rounded-full px-6 bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-900/20 transition-all hover:scale-105">
                 Get Started
               </Button>

@@ -67,7 +67,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50"
             onClick={() => {
               localStorage.removeItem("token");
-              router.push("/login");
+              router.push("/auth");
             }}
           >
             <LogOut className="w-4 h-4 mr-2" />
