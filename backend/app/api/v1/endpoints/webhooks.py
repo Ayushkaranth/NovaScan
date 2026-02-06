@@ -11,6 +11,7 @@ from app.services.intelligence.llm_engine import analyze_code
 from app.services.delivery.notion_bot import notion_bot  # Fixed Import
 from app.core.database import get_database 
 from app.services.delivery.email_service import send_manager_to_employee_alert
+from app.core.config import settings
 from slack_sdk import WebClient
 
 # Load Environment Variables
@@ -243,7 +244,7 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
             risk_data=risk_data,
             pr_url=event_data["url"]
         )
-        
+
 async def send_slack_alert(creds, repo, pr_id, risk_data, notion_url=None):
     client = WebClient(token=creds["slack_token"])
     main_text = f"🚨 NovaScan Risk Alert: PR #{pr_id} in {repo}"
