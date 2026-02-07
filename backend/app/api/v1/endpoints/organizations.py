@@ -98,3 +98,35 @@ async def get_dashboard_data(current_user: User = Depends(get_current_user)):
         "notifications": notifications,
         "role": current_user.role # Ensure role is returned
     }
+
+@router.delete("/{org_id}")
+async def delete_organization(
+    org_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Permanently deletes a project/organization.
+    """
+    db = get_database()
+
+    # 1. Verify the project exists
+    if not ObjectId.is_valid(org_id):
+         raise HTTPException(status_code=400, detail="Invalid Project ID")
+         
+    org = await db["organizations"].find_one({"_id": ObjectId(org_id)})
+    
+    if not org:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # 2. (Optional) Permission Check
+    # Ensure only the owner or HR can delete (uncomment if needed)
+    # if org.get("owner_id") != str(current_user.id) and current_user.role != "hr":
+    #     raise HTTPException(status_code=403, detail="Not authorized to delete this project")
+
+    # 3. Delete the Organization
+    result = await db["organizations"].delete_one({"_id": ObjectId(org_id)})
+
+    if result.deleted_count == 1:
+        return {"status": "success", "message": f"Project '{org.get('name')}' deleted successfully"}
+    
+    raise HTTPException(status_code=500, detail="Failed to delete project")
