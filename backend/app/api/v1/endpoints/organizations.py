@@ -156,7 +156,12 @@ async def delete_organization(
     if not ObjectId.is_valid(org_id):
          raise HTTPException(status_code=400, detail="Invalid Project ID")
     
-    result = await db["organizations"].delete_one({"_id": ObjectId(org_id)})
+    result = await db["organizations"].delete_one({
+    "$or": [
+        {"_id": org_id},
+        {"_id": ObjectId(org_id)}
+    ]
+})
     if result.deleted_count == 1:
         return {"status": "success", "message": "Project deleted"}
     
