@@ -363,15 +363,14 @@ async def master_onboard(
         "repo_name": payload["repo_name"].strip(),
         "owner_id": hr_user.id,
         
-        # --- CRITICAL FIX START ---
-        # We explicitly save these fields so the Webhook can find them later
+        # Explicitly saving team structure for quick lookup
         "manager_id": payload["manager_id"],
         "employee_ids": payload["employee_ids"],
-        # --- CRITICAL FIX END ---
 
         "members": [hr_user.id, payload["manager_id"]] + payload["employee_ids"],
         "assignments": {payload["manager_id"]: payload["employee_ids"]},
         "created_at": datetime.utcnow(),
+        
         "settings": {
             "github_access_token": payload["github_token"],
             "slack_bot_token": payload["slack_token"],
@@ -379,7 +378,11 @@ async def master_onboard(
             "jira_url": payload.get("jira_url"),
             "jira_email": payload.get("jira_email"),
             "jira_api_token": payload.get("jira_token"),
-            "jira_project_key": "SCRUM" 
+            "jira_project_key": "SCRUM",
+            
+            # ✅ Capture Notion Creds during Onboarding
+            "notion_token": payload.get("notion_token"),
+            "notion_database_id": payload.get("notion_database_id")
         }
     }
     
@@ -388,16 +391,22 @@ async def master_onboard(
     # 2. Setup GitHub Webhook
     webhook_target = f"{BASE_URL}/api/v1/webhooks/github/{org_id}"
     webhook_config = {
-        "name": "web", "active": True, "events": ["pull_request"],
+        "name": "web", 
+        "active": True, 
+        "events": ["pull_request"],
         "config": {"url": webhook_target, "content_type": "json", "insecure_ssl": "0"}
     }
+    
     headers = {"Authorization": f"token {payload['github_token']}", "Accept": "application/vnd.github.v3+json"}
     
-    async with httpx.AsyncClient() as http:
-        await http.post(
-            f"https://api.github.com/repos/{payload['repo_owner']}/{payload['repo_name']}/hooks",
-            json=webhook_config, headers=headers
-        )
+    try:
+        async with httpx.AsyncClient() as http:
+            await http.post(
+                f"https://api.github.com/repos/{payload['repo_owner']}/{payload['repo_name']}/hooks",
+                json=webhook_config, headers=headers
+            )
+    except Exception as e:
+        print(f"⚠️ Webhook setup failed (Check token permissions): {e}")
 
     # 3. Create Dashboard Notifications
     notif_batch = [
