@@ -31,17 +31,33 @@ redis_client = None
 
 async def connect_to_redis():
     global redis_client
-    redis_client = aioredis.from_url(
-        settings.REDIS_URL, 
-        decode_responses=True,
-        ssl_cert_reqs=None # Required for some Upstash connections
-    )
     try:
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+        
+        # 1. Prepare arguments based on environment
+        connection_kwargs = {
+            "decode_responses": True
+        }
+
+        # 2. Only add SSL options if the URL implies SSL (rediss://)
+        # This fixes the "unexpected keyword argument" error locally
+        if redis_url.startswith("rediss://"):
+            connection_kwargs["ssl_cert_reqs"] = "none"
+
+        print(f"🔌 Connecting to Redis at {redis_url}...")
+        
+        # 3. Create the client
+        redis_client = redis.from_url(redis_url, **connection_kwargs)
+        
+        # 4. Test connection
         await redis_client.ping()
-        print("✅ Connected to Upstash Redis!")
+        print("✅ Connected to Redis!")
+        
     except Exception as e:
         print(f"❌ Redis Connection Failed: {e}")
-
+        # Don't crash the whole app for Redis, just log it
+        redis_client = None
+        
 async def close_redis_connection():
     if redis_client:
         await redis_client.close()

@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # 1. Database
+  mongodb:
+    image: mongo:latest
+    container_name: loop_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - loop_network
+
+  # 2. Cache
+  redis:
+    image: redis:alpine
+    container_name: loop_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - loop_network
+
+  # 3. Backend API
+  backend:
+    build: ./backend
+    container_name: loop_backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override DB URLs to use internal container names
+      - MONGODB_URL=mongodb://mongodb:27017
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - loop_network
+
+  # 4. Frontend UI
+  frontend:
+    build: 
+      context: ./frontend
+      # Pass build arguments
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:8000
+    container_name: loop_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      # If you use server-side fetching in Next.js, use the internal name:
+      - INTERNAL_API_URL=http://backend:8000
+    depends_on:
+      - backend
+    networks:
+      - loop_network
+
+volumes:
+  mongodb_data:
+
+networks:
+  loop_network:
+    driver: bridge
