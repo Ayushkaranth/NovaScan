@@ -27,9 +27,15 @@ spec:
         
         # --- Authentication ---
         - name: SECRET_KEY
-          value: "your_super_secret_jwt_key_here_change_this"  # <--- Added
+          value: "your_super_secret_jwt_key_here_change_this" 
         - name: JWT_SECRET_KEY
-          value: "your_super_secret_jwt_key_here_change_this" # Redundant but safe to keep if code uses it
+          value: "your_super_secret_jwt_key_here_change_this" 
+        - name: GOOGLE_CLIENT_ID
+          value: "Paste_Your_Google_Client_ID_Here" 
+        - name: GOOGLE_CLIENT_SECRET
+          value: "Paste_Your_Google_Client_Secret_Here"
+        - name: GOOGLE_REDIRECT_URI
+          value: "http://localhost:30008/auth/callback"
         
         # --- Application Config ---
         - name: DB_NAME
