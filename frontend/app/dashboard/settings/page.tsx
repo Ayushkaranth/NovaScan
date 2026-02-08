@@ -17,6 +17,7 @@ export default function SettingsPage() {
   const [projects, setProjects] = useState<any[]>([]);
   const [currentOrg, setCurrentOrg] = useState<any>(null);
   const [user, setUser] = useState<any>(null);
+  const [allUsers, setAllUsers] = useState<any[]>([]); // <--- NEW: Store users for name lookup
 
   const [formData, setFormData] = useState({
     name: "",
@@ -26,8 +27,8 @@ export default function SettingsPage() {
     jira_url: "",
     jira_email: "",
     jira_token: "",
-    notion_token: "",       // <--- NEW
-    notion_database_id: ""  // <--- NEW
+    notion_token: "",
+    notion_database_id: ""
   });
 
   useEffect(() => {
@@ -45,6 +46,15 @@ export default function SettingsPage() {
       if (res.data.length > 0) {
         selectProjectToEdit(res.data[0]);
       }
+
+      // --- NEW: Fetch Users for Team Tab Display ---
+      try {
+        const usersRes = await api.get("/auth/users/list");
+        setAllUsers(usersRes.data);
+      } catch (err) {
+        console.warn("Could not fetch user list (likely permissions)", err);
+      }
+
     } catch (e) {
       console.error(e);
     } finally {
@@ -62,8 +72,8 @@ export default function SettingsPage() {
       jira_url: org.settings?.jira_url || "",
       jira_email: org.settings?.jira_email || "",
       jira_token: org.settings?.jira_api_token || "",
-      notion_token: org.settings?.notion_token || "",             // <--- NEW
-      notion_database_id: org.settings?.notion_database_id || ""  // <--- NEW
+      notion_token: org.settings?.notion_token || "",
+      notion_database_id: org.settings?.notion_database_id || ""
     });
   };
 
@@ -85,7 +95,7 @@ export default function SettingsPage() {
     const confirm = window.confirm(`⚠️ DANGER: Are you sure you want to delete "${orgName}"?\n\nThis action cannot be undone.`);
     if (confirm) {
       try {
-        await api.delete(`/organizations/${orgId}`);
+        await api.delete(`/organizations/delete/${orgId}`); // Updated to match your new DELETE route
         setProjects(projects.filter(p => p._id !== orgId));
         if (currentOrg?._id === orgId) setCurrentOrg(null);
         alert(`Project "${orgName}" deleted.`);
@@ -93,6 +103,23 @@ export default function SettingsPage() {
         alert("Failed to delete project.");
       }
     }
+  };
+
+  // --- HELPER: Get User Details ---
+  const getUserDetails = (id: string) => {
+    const u = allUsers.find(user => user._id === id);
+    if (u) {
+      return { 
+        name: u.full_name || "Unnamed User", 
+        email: u.email,
+        initial: (u.full_name || u.email || "?")[0].toUpperCase()
+      };
+    }
+    return { 
+      name: `User_${id.slice(-6)}`, 
+      email: "Unknown Email",
+      initial: "U"
+    };
   };
 
   if (loading) return <div className="p-12 flex justify-center"><Loader2 className="animate-spin text-indigo-600" /></div>;
@@ -241,12 +268,20 @@ export default function SettingsPage() {
                 <div className="space-y-4">
                    <div className="flex justify-between items-center"><h3 className="font-bold text-slate-900">Members of {currentOrg.name}</h3><span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">{currentOrg.members.length} Users</span></div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {currentOrg.members.map((memberId: string) => (
-                      <div key={memberId} className="flex items-center gap-3 p-4 border border-slate-200 rounded-xl">
-                        <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold border border-indigo-100">U</div>
-                        <div><p className="text-sm font-bold text-slate-900">User_{memberId.slice(-6)}</p><p className="text-xs text-slate-500 font-mono">ID: {memberId}</p></div>
-                      </div>
-                    ))}
+                    {currentOrg.members.map((memberId: string) => {
+                      const u = getUserDetails(memberId);
+                      return (
+                        <div key={memberId} className="flex items-center gap-3 p-4 border border-slate-200 rounded-xl">
+                          <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold border border-indigo-100">
+                            {u.initial}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-900 truncate">{u.name}</p>
+                            <p className="text-xs text-slate-500 truncate" title={u.email}>{u.email}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               ) : <p className="text-center text-slate-400">No project selected.</p>}

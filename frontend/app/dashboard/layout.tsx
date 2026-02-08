@@ -29,14 +29,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <aside className="w-64 bg-white border-r border-slate-200 fixed h-full flex flex-col z-20">
         
         {/* Logo */}
-        <div className="h-16 flex items-center px-6 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center shadow-lg shadow-slate-900/20">
-              <Activity className="w-4 h-4 text-white" />
-            </div>
-            <span className="font-bold text-lg tracking-tight">Loop AI</span>
-          </div>
-        </div>
+       <div className="h-16 flex items-center px-6 border-b border-slate-100">
+  {/* Changed <div> to <Link> and added href="/" */}
+  <Link href="/" className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity">
+    <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center shadow-lg shadow-slate-900/20">
+      <Activity className="w-4 h-4 text-white" />
+    </div>
+    <span className="font-bold text-lg tracking-tight">Loop AI</span>
+  </Link>
+</div>
 
         {/* Nav Links */}
         <nav className="flex-1 p-4 space-y-1">
@@ -45,12 +46,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             icon={<LayoutGrid className="w-4 h-4" />} 
             label="Risk Feed" 
             active={pathname === "/dashboard"} 
-          />
-          <NavItem 
-            href="/dashboard/integrations" 
-            icon={<Zap className="w-4 h-4" />} 
-            label="Integrations" 
-            active={pathname === "/dashboard/integrations"} 
           />
           <NavItem 
             href="/dashboard/settings" 
