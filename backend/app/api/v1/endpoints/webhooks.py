@@ -390,6 +390,7 @@ async def get_org_credentials(org_id: str):
             "jira_email": settings.get("jira_email"),
             "jira_token": settings.get("jira_api_token"),
             "jira_project_key": settings.get("jira_project_key", "SCRUM"),
+            # --- NEW FIELDS FOR DYNAMIC NOTION ---
             "notion_token": settings.get("notion_token"),
             "notion_database_id": settings.get("notion_database_id")
         }
@@ -480,29 +481,48 @@ async def handle_github_webhook(org_id: str, request: Request):
 
 async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
     """
-    Handles alerts. Now passes org_id correctly to Slack for interactive buttons.
+    Handles the logic for where to send alerts based on the risk score.
     """
     db = get_database()
     notion_url = None
 
-    # Organization Lookup
-    query = {"$or": [{"_id": org_id}, {"_id": ObjectId(org_id) if ObjectId.is_valid(org_id) else None}]}
+    # --- STEP 1: ROBUST ORGANIZATION LOOKUP ---
+    query = {
+        "$or": [
+            {"_id": org_id},
+            {"_id": ObjectId(org_id) if ObjectId.is_valid(org_id) else None}
+        ]
+    }
     org = await db["organizations"].find_one(query)
     
     if not org:
+        logger.warning(f"⚠️ Organization {org_id} not found for dispatch")
         return
 
+    # Fetch Manager Identity
     manager = await db["users"].find_one({"_id": org.get("manager_id")})
     manager_name = manager.get("full_name", "Project Manager") if manager else "Project Manager"
     manager_email = manager.get("email") if manager else settings.SMTP_USER
 
-    # Employee Lookup
+    # --- STEP 1.5: UNIVERSAL EMPLOYEE LOOKUP ---
     raw_ids = org.get("employee_ids", [])
-    search_ids = [uid for uid in raw_ids] + [ObjectId(uid) for uid in raw_ids if isinstance(uid, str) and ObjectId.is_valid(uid)]
+    search_ids = []
+
+    for uid in raw_ids:
+        search_ids.append(uid)
+        if isinstance(uid, str) and ObjectId.is_valid(uid):
+            search_ids.append(ObjectId(uid))
+
     employees = await db["users"].find({"_id": {"$in": search_ids}}).to_list(length=100)
     employee_emails = [emp["email"] for emp in employees]
+    
+    if employee_emails:
+        logger.info(f"👥 Found {len(employee_emails)} employees for email dispatch.")
+    else:
+        logger.warning(f"⚠️ No employee emails found.")
 
-    # 1. Notion Report (Try Automatic First)
+    # --- STEP 2: CREATE NOTION DOCUMENTATION (DYNAMIC) ---
+    # Now uses the tokens from 'creds' which came from the DB, not global env
     notion_res = await notion_bot.create_incident_report(
         analysis=risk_data,
         event_summary=event_data["summary"],
@@ -513,20 +533,32 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
     if notion_res:
         notion_url = notion_res.get("url")
         logger.info(f"📄 Notion report created: {notion_url}")
+    else:
+        logger.info("ℹ️ Notion report skipped (Credentials missing or invalid)")
 
-    # 2. Slack Alert
-    if risk_data.get("risk_score", 0) > 5:
+    # Step 3: Send Alerts if risk is significant (> 5)
+    risk_score = risk_data.get("risk_score", 0)
+    
+    if risk_score > 5:
+        # Slack Alert
         if creds.get("slack_token") and creds.get("slack_channel"):
-            # We pass org_id here so the Slack button knows which org context to use
+            # IMPORTANT: We pass org_id here so the Slack button works
             await send_slack_alert(creds, event_data["repo"], event_data["pr_id"], risk_data, notion_url, org_id)
-
-    # 3. Jira Ticket
-    if risk_data.get("risk_score", 0) > 5:
+        
+        # Jira Ticket
         if creds.get("jira_url") and creds.get("jira_token"):
-            create_jira_ticket(creds, event_data["repo"], event_data["pr_id"], event_data["title"], risk_data, event_data["url"], notion_url)
+            create_jira_ticket(
+                creds, 
+                event_data["repo"], 
+                event_data["pr_id"], 
+                event_data["title"], 
+                risk_data, 
+                event_data["url"],
+                notion_url
+            )
 
-    # 4. Email Alert
-    if risk_data.get("risk_score", 0) >= 6:
+    # Step 4: High Risk Gmail Alert
+    if risk_score >= 6:
         await send_manager_to_employee_alert(
             manager_name=manager_name,
             manager_email=manager_email,
@@ -535,7 +567,7 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
             risk_data=risk_data,
             pr_url=event_data["url"]
         )
-
+        
 async def send_slack_alert(creds, repo, pr_id, risk_data, notion_url, org_id):
     """
     Sends a Slack message. 
@@ -561,7 +593,7 @@ async def send_slack_alert(creds, repo, pr_id, risk_data, notion_url, org_id):
 
     action_elements = []
 
-    # Button 1: View Existing Report (if auto-created)
+    # Button 1: View Existing Report
     if notion_url:
         action_elements.append({
             "type": "button",
@@ -570,8 +602,7 @@ async def send_slack_alert(creds, repo, pr_id, risk_data, notion_url, org_id):
             "style": "primary"
         })
     else:
-        # Button 2: Manual Trigger (if auto-creation failed or wasn't set up)
-        # We embed the org_id and pr_url into the 'value' field separated by a pipe '|'
+        # Button 2: Manual Trigger (Embeds org_id in value)
         action_elements.append({
             "type": "button",
             "text": {"type": "plain_text", "text": "📝 Generate Report Manually"},
@@ -634,22 +665,18 @@ async def handle_slack_interactive(request: Request, background_tasks: Backgroun
             creds = await get_org_credentials(org_id)
             if not creds:
                 logger.error(f"❌ Could not find credentials for Org ID: {org_id}")
-                # Ideally send a message back to Slack saying "Org not found"
                 return {"status": "error"}
 
             # 3. Trigger the Bot
-            # We run this in background so Slack doesn't timeout
             background_tasks.add_task(
                 notion_bot.create_incident_report,
                 analysis={"reason": f"Manual Trigger by {payload['user']['username']}", "risk_score": 8},
                 event_summary="Developer Initiated Report",
                 pr_url=pr_url,
-                notion_token=creds.get("notion_token"),          # <--- Dynamic
-                database_id=creds.get("notion_database_id")      # <--- Dynamic
+                notion_token=creds.get("notion_token"),
+                database_id=creds.get("notion_database_id")
             )
             
-            # 4. Acknowledge Slack (To stop the loading spinner)
-            # You can also use response_url to post a "Report generating..." message
             return {"status": "ok"}
             
     except Exception as e:
