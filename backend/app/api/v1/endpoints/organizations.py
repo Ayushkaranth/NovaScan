@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException,Body
 from app.models.organization import Organization, OrganizationCreate
 from app.models.user import User
 from app.api.v1.endpoints.auth import get_current_user
