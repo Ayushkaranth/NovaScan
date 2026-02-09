@@ -1,7 +1,8 @@
+import os
+import redis
 from motor.motor_asyncio import AsyncIOMotorClient
 from redis import asyncio as aioredis
 from app.core.config import settings
-
 # --- MongoDB Setup ---
 class Database:
     client: AsyncIOMotorClient = None
@@ -33,31 +34,29 @@ async def connect_to_redis():
     global redis_client
     try:
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-        
-        # 1. Prepare arguments based on environment
+
         connection_kwargs = {
             "decode_responses": True
         }
 
-        # 2. Only add SSL options if the URL implies SSL (rediss://)
-        # This fixes the "unexpected keyword argument" error locally
+        # Upstash uses TLS
         if redis_url.startswith("rediss://"):
             connection_kwargs["ssl_cert_reqs"] = "none"
 
         print(f"🔌 Connecting to Redis at {redis_url}...")
-        
-        # 3. Create the client
-        redis_client = redis.from_url(redis_url, **connection_kwargs)
-        
-        # 4. Test connection
+
+        # ✅ USE ASYNC REDIS
+        redis_client = aioredis.from_url(redis_url, **connection_kwargs)
+
+        # ✅ Async ping
         await redis_client.ping()
         print("✅ Connected to Redis!")
-        
+
     except Exception as e:
         print(f"❌ Redis Connection Failed: {e}")
-        # Don't crash the whole app for Redis, just log it
         redis_client = None
-        
+
+
 async def close_redis_connection():
     if redis_client:
         await redis_client.close()
