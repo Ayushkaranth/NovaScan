@@ -26,14 +26,20 @@ async def get_project_risks(
         raise HTTPException(status_code=404, detail="Project not found")
 
     # 2. Fetch Scans using the Repo Name
-    # (Scans are stored by repo name in the webhook, e.g., "ayush/novascan")
     repo_full_name = f"{project.get('repo_owner')}/{project.get('repo_name')}"
     
-    print(f"Fetching risks for: {repo_full_name}")  # Debug log
+    print(f"Fetching risks for: {repo_full_name}") 
 
     scans = await db["scans"].find({"repo": repo_full_name}) \
         .sort("timestamp", -1) \
         .limit(limit) \
         .to_list(length=limit)
+
+    # 🚨 CRITICAL FIX: Convert ObjectId to String for JSON serialization 🚨
+    for scan in scans:
+        if "_id" in scan:
+            scan["_id"] = str(scan["_id"])
+        if "org_id" in scan and isinstance(scan["org_id"], ObjectId):
+             scan["org_id"] = str(scan["org_id"])
 
     return scans
