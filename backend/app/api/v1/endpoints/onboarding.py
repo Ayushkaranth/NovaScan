@@ -13,7 +13,7 @@ load_dotenv()
 router = APIRouter()
 BASE_URL = os.getenv("BASE_URL") 
 
-# 1. CREATE PROJECT 
+# 1. CREATE PROJECT (Shell)
 @router.post("/project")
 async def create_project_shell(
     name: str = Body(...),
@@ -27,10 +27,6 @@ async def create_project_shell(
     slack_channel: Optional[str] = Body(None),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Creates a Project entity in the 'projects' collection.
-    Links it to the current user's Organization.
-    """
     if not BASE_URL:
         raise HTTPException(status_code=500, detail="Server misconfiguration: BASE_URL missing")
     
@@ -44,17 +40,14 @@ async def create_project_shell(
 
     # 1. SAVE TO 'PROJECTS' COLLECTION
     new_project = {
-        "organization_id": current_user.current_org_id, # Link to Parent Org
+        "organization_id": current_user.current_org_id,
         "name": name,
         "slug": name.lower().replace(" ", "-"),
         "repo_owner": repo_owner.strip(),
         "repo_name": repo_name.strip(),
         "created_by": current_user.id,
-        
-        # Team (Empty initially, filled via /assign-team)
         "manager_id": None, 
         "employee_ids": [],
-        
         "created_at": datetime.utcnow(),
         "settings": {
             "github_access_token": github_token,
@@ -70,8 +63,8 @@ async def create_project_shell(
     result = await db["projects"].insert_one(new_project)
     project_id = str(result.inserted_id)
 
-    # 2. AUTO-INSTALL GITHUB WEBHOOK
-    webhook_target = f"{BASE_URL}/api/v1/webhooks/github/{project_id}"
+    # 2. AUTO-INSTALL GITHUB WEBHOOK (FIXED: Uses Org ID)
+    webhook_target = f"{BASE_URL}/api/v1/webhooks/github/{current_user.current_org_id}"
     webhook_config = {
         "name": "web",
         "active": True,
@@ -96,17 +89,16 @@ async def create_project_shell(
         
     return {"status": "success", "project_id": project_id, "message": "Project created successfully"}
 
-# 2. ASSIGN TEAM (Step 2)
+# 2. ASSIGN TEAM
 @router.post("/assign-team")
 async def assign_team(
-    project_id: str = Body(..., alias="org_id"), # Accepting org_id from frontend but treating as project_id
+    project_id: str = Body(..., alias="org_id"),
     manager_id: str = Body(...),
     employee_ids: List[str] = Body(...),
-    hr_user: User = Depends(check_role("admin")) # Changed "hr" to "admin" to match typical roles
+    hr_user: User = Depends(check_role("admin"))
 ):
     db = get_database()
     
-    # 1. Verify Project
     project = await db["projects"].find_one({"_id": ObjectId(project_id)})
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -114,7 +106,6 @@ async def assign_team(
     if project["organization_id"] != hr_user.current_org_id:
         raise HTTPException(status_code=403, detail="Project does not belong to your organization")
 
-    # 2. Update Project Team
     await db["projects"].update_one(
         {"_id": ObjectId(project_id)},
         {
@@ -125,10 +116,7 @@ async def assign_team(
         }
     )
 
-    # 3. Create Dashboard Notifications
     notif_list = []
-    
-    # Notify Manager
     notif_list.append({
         "user_id": manager_id,
         "title": "New Assignment",
@@ -138,7 +126,6 @@ async def assign_team(
         "is_read": False
     })
     
-    # Notify Employees
     for emp_id in employee_ids:
         notif_list.append({
             "user_id": emp_id,
@@ -152,7 +139,6 @@ async def assign_team(
     if notif_list:
         await db["notifications"].insert_many(notif_list)
 
-    # 4. Broadcast to Slack (if configured)
     settings = project.get("settings", {})
     if settings.get("slack_bot_token") and settings.get("slack_channel"):
         await broadcast_team_assignment(
@@ -183,21 +169,16 @@ async def master_onboard(
     project_id = str(ObjectId())
     
     new_project = {
-        "_id": project_id,
-        "organization_id": hr_user.current_org_id, # Crucial Link
+        "_id": ObjectId(project_id), # Ensure it's stored as ObjectId
+        "organization_id": hr_user.current_org_id, 
         "name": payload["name"],
         "slug": payload["name"].lower().replace(" ", "-"),
         "repo_owner": payload["repo_owner"].strip(),
         "repo_name": payload["repo_name"].strip(),
         "created_by": hr_user.id,
-        
-        # Team Structure
         "manager_id": payload["manager_id"],
         "employee_ids": payload["employee_ids"],
-
         "created_at": datetime.utcnow(),
-        
-        # Integrations
         "settings": {
             "github_access_token": payload["github_token"],
             "slack_bot_token": payload["slack_token"],
@@ -211,11 +192,13 @@ async def master_onboard(
         }
     }
     
-    # Save to PROJECTS collection
     await db["projects"].insert_one(new_project)
 
-    # 2. Setup GitHub Webhook
-    webhook_target = f"{BASE_URL}/api/v1/webhooks/github/{project_id}"
+    # 2. Setup GitHub Webhook (FIXED: Uses Org ID)
+    # 🔴 OLD BUG: webhook_target = f"{BASE_URL}/api/v1/webhooks/github/{project_id}"
+    # 🟢 NEW FIX: Use hr_user.current_org_id
+    webhook_target = f"{BASE_URL}/api/v1/webhooks/github/{hr_user.current_org_id}"
+    
     webhook_config = {
         "name": "web", 
         "active": True, 
@@ -264,8 +247,6 @@ async def master_onboard(
 async def broadcast_team_assignment(token: str, channel: str, project_name: str, manager_id: str, employee_ids: list):
     try:
         async with httpx.AsyncClient() as client:
-            # Note: Slack user IDs <@ID> format usually requires checking if IDs are email or Slack IDs.
-            # Assuming these are internal DB IDs, this might just print the ID string unless mapped.
             message = {
                 "channel": channel,
                 "text": f"🏗️ *New Project Infrastructure Deployed: {project_name}*\n"

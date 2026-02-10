@@ -1,7 +1,8 @@
+// app/projects/[id]/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import api from '@/lib/api';
 import { 
@@ -17,7 +18,6 @@ import {
 
 export default function ProjectDashboard() {
   const params = useParams();
-  const router = useRouter();
   const projectId = params.id;
 
   const [project, setProject] = useState<any>(null);
@@ -28,12 +28,10 @@ export default function ProjectDashboard() {
     const fetchData = async () => {
       try {
         // 1. Get Project Details
-        // (Assuming you have an endpoint for single project, if not we filter from Org)
         const projRes = await api.get(`/projects/${projectId}`);
         setProject(projRes.data);
 
-        // 2. Get Risk Scans (The "Feed")
-        // Checks your backend for GET /api/v1/risks?project_id=...
+        // 2. Get Risk Scans
         const scansRes = await api.get(`/risks?project_id=${projectId}&limit=20`);
         setScans(scansRes.data);
       } catch (err) {
@@ -72,6 +70,7 @@ export default function ProjectDashboard() {
             <a 
               href={`https://github.com/${project.repo_owner}/${project.repo_name}`}
               target="_blank"
+              rel="noopener noreferrer"
               className="flex items-center gap-2 text-gray-500 mt-2 hover:text-blue-600 transition-colors"
             >
               <Github className="h-4 w-4" />
@@ -165,16 +164,18 @@ function ScanCard({ scan }: any) {
         <div className="flex items-start gap-4">
           <div className="mt-1">{icon}</div>
           <div>
+            {/* 🔴 MAPPED to Backend: pr_id instead of pr_number */}
             <h3 className="text-lg font-bold text-gray-900">
-              PR #{scan.pr_number}: {scan.pr_title || "Untitled Pull Request"}
+              PR #{scan.pr_id}: {scan.pr_title || "Pull Request Analysis"}
             </h3>
             <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
               <span className="flex items-center gap-1">
                 <Clock className="h-3 w-3" />
-                {new Date(scan.created_at).toLocaleDateString()}
+                {/* 🔴 MAPPED to Backend: timestamp instead of created_at */}
+                {scan.timestamp ? new Date(scan.timestamp).toLocaleDateString() : "Just now"}
               </span>
               <span>•</span>
-              <span className="font-mono">{scan.author || "Unknown Author"}</span>
+              <span className="font-mono">{scan.author || "GitHub User"}</span>
             </div>
           </div>
         </div>
@@ -187,17 +188,16 @@ function ScanCard({ scan }: any) {
 
       <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-700 leading-relaxed border border-gray-100">
         <p className="font-medium mb-1 text-gray-900">AI Assessment:</p>
-        {scan.ai_summary || "Analysis pending..."}
+        {/* 🔴 MAPPED to Backend: summary instead of ai_summary */}
+        {scan.summary || "Analysis pending..."}
       </div>
-
-      {isHighRisk && (
-        <div className="mt-4 flex gap-2">
-           <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-bold rounded">
-             Jira Ticket Created
-           </span>
-           <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded">
-             Slack Alert Sent
-           </span>
+      
+      {/* Link to PR if available */}
+      {scan.pr_url && (
+        <div className="mt-4">
+            <a href={scan.pr_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline text-sm font-semibold">
+                View Pull Request &rarr;
+            </a>
         </div>
       )}
     </div>
