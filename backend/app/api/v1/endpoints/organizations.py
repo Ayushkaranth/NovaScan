@@ -236,3 +236,71 @@ async def update_organization(
     )
 
     return {"status": "success", "message": "Organization updated"}
+
+# 6. Join an Organization (Optional)
+class JoinOrgRequest(BaseModel):
+    token: str  # The last 6 characters of the Org ID
+    role: str = "employee" # User specifies their role (admin, manager, employee)
+
+# 6. JOIN ORGANIZATION (User Initiated)
+@router.post("/join/{org_id}")
+async def join_organization(
+    org_id: str,
+    payload: JoinOrgRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    User joins an organization by providing the 'Special Token' 
+    (which is the last 6 characters of the Organization ID).
+    """
+    db = get_database()
+
+    # 1. Validate ObjectId format
+    if not ObjectId.is_valid(org_id):
+        raise HTTPException(status_code=400, detail="Invalid Organization ID format")
+    
+    # 2. Verify Token (Must be last 6 chars of the Org ID)
+    # Example: If ID is "65d4...123456", token must be "123456"
+    expected_token = str(org_id)[-6:]
+    
+    if payload.token != expected_token:
+        raise HTTPException(status_code=403, detail="Invalid join token")
+
+    # 3. Fetch Organization
+    org = await db["organizations"].find_one({"_id": org_id})
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    # 4. Check if User is Already a Member
+    # Collect all existing member IDs
+    all_members = org.get("admin_ids", []) + org.get("manager_ids", []) + org.get("employee_ids", [])
+    
+    if current_user.id in all_members:
+        raise HTTPException(status_code=400, detail="You are already a member of this organization")
+
+    # 5. Determine which list to add them to
+    target_list = "employee_ids" # Default
+    if payload.role == "admin": 
+        target_list = "admin_ids"
+    elif payload.role == "manager": 
+        target_list = "manager_ids"
+
+    # 6. Update Organization (Add to role list)
+    await db["organizations"].update_one(
+        {"_id": org_id},
+        {"$addToSet": {target_list: current_user.id}}
+    )
+
+    # 7. Update User Profile (Link to Org)
+    await db["users"].update_one(
+        {"_id": current_user.id},
+        {"$set": {
+            "current_org_id": org_id, 
+            "role": payload.role
+        }}
+    )
+
+    return {
+        "status": "success", 
+        "message": f"Successfully joined {org['name']} as {payload.role}"
+    }
