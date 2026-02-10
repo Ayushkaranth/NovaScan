@@ -1,4 +1,3 @@
-// app/projects/new/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -38,15 +37,19 @@ export default function MasterOnboarding() {
         const res = await api.get('/organizations/members/list');
         setMembers(res.data.members);
       } catch (err) {
-        alert("Failed to fetch team members. Please check your connection.");
+        console.error("Failed to fetch team members", err);
       }
     };
     fetchMembers();
   }, []);
 
-  // Filter lists based on Roles
+  // --- 🔴 FIXED FILTERING LOGIC ---
+  // Managers List: Includes 'manager' AND 'admin' (HR)
   const managersList = members.filter(m => m.role === 'manager' || m.role === 'admin');
-  const employeesList = members; // Employees can technically be anyone
+  
+  // Employees List: Strictly includes ONLY 'employee' role
+  const employeesList = members.filter(m => m.role === 'employee'); 
+  // --------------------------------
 
   // Handle Text Inputs
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -104,7 +107,7 @@ export default function MasterOnboarding() {
               <div className="grid grid-cols-1 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Project Name</label>
-                  <input name="name" required onChange={handleChange} className="mt-1 block w-full border border-gray-300 rounded-md p-2" placeholder="e.g. AI Mobile App" />
+                  <input name="name" required onChange={handleChange} className="mt-1 block w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500" placeholder="e.g. AI Mobile App" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -133,48 +136,63 @@ export default function MasterOnboarding() {
               </h3>
               
               {/* Manager Selection (Radio) */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Select Project Manager (Single)</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {managersList.map((user) => (
-                    <div 
-                      key={user._id}
-                      onClick={() => setFormData({...formData, manager_id: user._id})}
-                      className={`cursor-pointer border rounded-lg p-3 flex items-center gap-3 transition-all ${
-                        formData.manager_id === user._id ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-600' : 'hover:bg-gray-50'
-                      }`}
-                    >
-                      <Shield className={`h-5 w-5 ${formData.manager_id === user._id ? 'text-blue-600' : 'text-gray-400'}`} />
-                      <div>
-                        <p className="text-sm font-bold text-gray-900">{user.name}</p>
-                        <p className="text-xs text-gray-500 capitalize">{user.role}</p>
+              <div className="mb-8">
+                <label className="block text-sm font-bold text-gray-800 mb-3 bg-yellow-50 p-2 rounded border border-yellow-200 inline-block">
+                  Select Project Manager (Admins & Managers)
+                </label>
+                
+                {managersList.length === 0 ? (
+                  <p className="text-sm text-gray-500 italic">No managers found. Invite a manager from the settings.</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {managersList.map((user) => (
+                      <div 
+                        key={user._id}
+                        onClick={() => setFormData({...formData, manager_id: user._id})}
+                        className={`cursor-pointer border rounded-lg p-3 flex items-center gap-3 transition-all ${
+                          formData.manager_id === user._id ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-600' : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        <Shield className={`h-5 w-5 ${formData.manager_id === user._id ? 'text-blue-600' : 'text-gray-400'}`} />
+                        <div>
+                          <p className="text-sm font-bold text-gray-900">{user.name}</p>
+                          <p className="text-xs text-gray-500 capitalize">{user.role}</p>
+                        </div>
+                        {formData.manager_id === user._id && <Check className="ml-auto h-4 w-4 text-blue-600" />}
                       </div>
-                      {formData.manager_id === user._id && <Check className="ml-auto h-4 w-4 text-blue-600" />}
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Employee Selection (Checkbox) */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Select Employees (Multiple)</label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {employeesList.map((user) => (
-                    <div 
-                      key={user._id}
-                      onClick={() => toggleEmployee(user._id)}
-                      className={`cursor-pointer border rounded-lg p-3 flex items-center gap-3 transition-all ${
-                        formData.employee_ids.includes(user._id) ? 'border-green-600 bg-green-50 ring-1 ring-green-600' : 'hover:bg-gray-50'
-                      }`}
-                    >
-                      <UserIcon className={`h-5 w-5 ${formData.employee_ids.includes(user._id) ? 'text-green-600' : 'text-gray-400'}`} />
-                      <div className="truncate">
-                        <p className="text-sm font-bold text-gray-900 truncate">{user.name}</p>
-                        <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                <label className="block text-sm font-bold text-gray-800 mb-3 bg-green-50 p-2 rounded border border-green-200 inline-block">
+                  Select Employees (Developers)
+                </label>
+                
+                {employeesList.length === 0 ? (
+                  <p className="text-sm text-gray-500 italic">No employees found.</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {employeesList.map((user) => (
+                      <div 
+                        key={user._id}
+                        onClick={() => toggleEmployee(user._id)}
+                        className={`cursor-pointer border rounded-lg p-3 flex items-center gap-3 transition-all ${
+                          formData.employee_ids.includes(user._id) ? 'border-green-600 bg-green-50 ring-1 ring-green-600' : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        <UserIcon className={`h-5 w-5 ${formData.employee_ids.includes(user._id) ? 'text-green-600' : 'text-gray-400'}`} />
+                        <div className="truncate">
+                          <p className="text-sm font-bold text-gray-900 truncate">{user.name}</p>
+                          <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                        </div>
+                        {formData.employee_ids.includes(user._id) && <Check className="ml-auto h-4 w-4 text-green-600" />}
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </section>
 

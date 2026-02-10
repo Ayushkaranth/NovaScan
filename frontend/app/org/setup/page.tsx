@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
-import { Building2, UserPlus, ArrowRight } from 'lucide-react';
+import { Building2, UserPlus, ArrowRight, Shield, Briefcase, User } from 'lucide-react';
 
 export default function SetupOrganization() {
   const router = useRouter();
@@ -12,7 +12,12 @@ export default function SetupOrganization() {
 
   // --- Form State ---
   const [createForm, setCreateForm] = useState({ name: '', slug: '', website_url: '' });
-  const [joinForm, setJoinForm] = useState({ org_id: '' });
+  
+  // 🟢 FIXED: Added 'role' to the Join State
+  const [joinForm, setJoinForm] = useState({ 
+    org_id: '', 
+    role: 'employee' // Default, but user can change it now
+  });
 
   // --- Handler: Create Org ---
   const handleCreate = async (e: React.FormEvent) => {
@@ -35,17 +40,16 @@ export default function SetupOrganization() {
     setLoading(true);
     
     const orgId = joinForm.org_id.trim();
-    
-    // Logic: Backend expects a "token" which is the last 6 chars of the ID
     const derivedToken = orgId.slice(-6); 
 
     try {
+      // 🟢 FIXED: Sending the user-selected role instead of hardcoded 'employee'
       await api.post(`/organizations/join/${orgId}`, {
-        token: derivedToken, // Auto-filled for the user
-        role: "employee"     // Default role for joiners
+        token: derivedToken, 
+        role: joinForm.role 
       });
       
-      alert('Joined Successfully!');
+      alert(`Joined Successfully as ${joinForm.role}!`);
       router.push('/dashboard');
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Join Failed. Check the ID.');
@@ -138,9 +142,10 @@ export default function SetupOrganization() {
               <div className="text-center mb-6">
                 <UserPlus className="h-12 w-12 text-green-600 mx-auto mb-2" />
                 <h3 className="text-lg font-bold text-gray-900">Join a Team</h3>
-                <p className="text-gray-500 text-sm">Ask your Admin for the Organization ID.</p>
+                <p className="text-gray-500 text-sm">Enter the ID provided by your Admin.</p>
               </div>
 
+              {/* Input 1: Org ID */}
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">Organization ID</label>
                 <input
@@ -150,9 +155,56 @@ export default function SetupOrganization() {
                   value={joinForm.org_id}
                   onChange={(e) => setJoinForm({ ...joinForm, org_id: e.target.value })}
                 />
-                <p className="text-xs text-gray-400 mt-2">
-                  The system automatically verifies the token from this ID.
-                </p>
+              </div>
+
+              {/* Input 2: Role Selection (NEW) */}
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">I am joining as:</label>
+                <div className="grid grid-cols-3 gap-2">
+                  
+                  {/* Admin Option */}
+                  <button
+                    type="button"
+                    onClick={() => setJoinForm({...joinForm, role: 'admin'})}
+                    className={`p-3 rounded-lg border text-center transition-all ${
+                      joinForm.role === 'admin' 
+                        ? 'border-purple-500 bg-purple-50 text-purple-700 ring-1 ring-purple-500' 
+                        : 'border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Shield className={`h-5 w-5 mx-auto mb-1 ${joinForm.role === 'admin' ? 'text-purple-600' : 'text-gray-400'}`} />
+                    <span className="text-xs font-bold block">Admin</span>
+                  </button>
+
+                  {/* Manager Option */}
+                  <button
+                    type="button"
+                    onClick={() => setJoinForm({...joinForm, role: 'manager'})}
+                    className={`p-3 rounded-lg border text-center transition-all ${
+                      joinForm.role === 'manager' 
+                        ? 'border-blue-500 bg-blue-50 text-blue-700 ring-1 ring-blue-500' 
+                        : 'border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Briefcase className={`h-5 w-5 mx-auto mb-1 ${joinForm.role === 'manager' ? 'text-blue-600' : 'text-gray-400'}`} />
+                    <span className="text-xs font-bold block">Manager</span>
+                  </button>
+
+                  {/* Employee Option */}
+                  <button
+                    type="button"
+                    onClick={() => setJoinForm({...joinForm, role: 'employee'})}
+                    className={`p-3 rounded-lg border text-center transition-all ${
+                      joinForm.role === 'employee' 
+                        ? 'border-green-500 bg-green-50 text-green-700 ring-1 ring-green-500' 
+                        : 'border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <User className={`h-5 w-5 mx-auto mb-1 ${joinForm.role === 'employee' ? 'text-green-600' : 'text-gray-400'}`} />
+                    <span className="text-xs font-bold block">Employee</span>
+                  </button>
+
+                </div>
               </div>
 
               <button
