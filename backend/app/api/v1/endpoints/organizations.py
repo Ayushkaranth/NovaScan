@@ -304,3 +304,32 @@ async def join_organization(
         "status": "success", 
         "message": f"Successfully joined {org['name']} as {payload.role}"
     }
+
+@router.get("/members/list")
+async def get_organization_members(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Returns a list of all users in the current organization with their details (ID, Name, Role).
+    Used to populate the checkboxes in the Master Onboarding UI.
+    """
+    db = get_database()
+    
+    if not current_user.current_org_id:
+        raise HTTPException(status_code=400, detail="No organization found")
+
+    # Fetch the Organization to get the lists of IDs
+    org = await db["organizations"].find_one({"_id": current_user.current_org_id})
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    # Combine all IDs
+    all_member_ids = org.get("admin_ids", []) + org.get("manager_ids", []) + org.get("employee_ids", [])
+    
+    # Fetch User Details for these IDs
+    users = await db["users"].find(
+        {"_id": {"$in": all_member_ids}},
+        {"_id": 1, "name": 1, "email": 1, "role": 1} # Projection: Only needed fields
+    ).to_list(length=1000)
+
+    return {"members": users}
