@@ -27,6 +27,9 @@ class Settings(BaseSettings):
 
     RESEND_API_KEY: str
 
+    SMTP_USER: str = "onboarding@resend.dev" 
+    RESEND_API_KEY: Optional[str] = None
+
     class Config:
         env_file = ".env"
         case_sensitive = True

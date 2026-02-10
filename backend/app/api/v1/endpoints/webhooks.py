@@ -442,26 +442,36 @@ async def handle_github_webhook(org_id: str, request: Request):
             pr = payload.get("pull_request")
             pr_number = pr.get("number")
             repo_name = payload.get("repository", {}).get("full_name")
-            title = pr.get("title")
+            title = pr.get("title", "Untitled")
+            user_login = pr.get("user", {}).get("login", "Unknown") # Get Author
             body = pr.get("body", "") or ""
             diff_url = pr.get("diff_url")
             pr_url = pr.get("html_url")
 
             logger.info(f"✅ Processing PR #{pr_number} for Org: {org_id}")
 
-            # Get Diff
+            # Get Diff - 🚨 SYNTAX ERROR FIXED HERE 🚨
             diff_text = ""
             if creds.get("github_token"):
                 async with httpx.AsyncClient() as client:
-                    resp = await client.get(diff_url, headers={"Authorization": f"token {creds['github_token']}"}, follow_redirects=True)
+                    # Fix: Headers must be in one dictionary
+                    headers = {
+                        "Authorization": f"token {creds['github_token']}",
+                        "Accept": "application/vnd.github.v3.diff" 
+                    }
+                    resp = await client.get(diff_url, headers=headers, follow_redirects=True)
                     if resp.status_code == 200:
                         diff_text = resp.text
 
             # AI Analysis
             risk_analysis = await analyze_code(diff_text, {"title": title, "body": body})
             
-            # Save to DB
-            await save_scan_to_db(org_id, repo_name, pr_number, risk_analysis, pr_url)
+            # Save to DB - 🚨 PASSING TITLE/AUTHOR FIXED HERE 🚨
+            await save_scan_to_db(
+                org_id, repo_name, pr_number, risk_analysis, pr_url, 
+                pr_title=title, 
+                pr_author=user_login
+            )
 
             # Trigger Dispatch
             event_data = {
