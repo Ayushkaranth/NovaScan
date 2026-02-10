@@ -399,22 +399,27 @@ async def get_org_credentials(org_id: str):
         return None
 
 # --- HELPER: SAVE SCAN TO DB ---
-async def save_scan_to_db(org_id, repo, pr_id, risk_data, pr_url):
+async def save_scan_to_db(org_id, repo, pr_id, risk_data, pr_url, pr_title="Untitled", pr_author="Unknown"):
     try:
         db = get_database()
         collection = db.get_collection("scans")
+        
         scan_record = {
             "org_id": str(org_id),
             "repo": repo,
             "pr_id": pr_id,
+            "pr_title": pr_title,     # <--- Now correctly accepted and saved
+            "author": pr_author,      # <--- Now correctly accepted and saved
             "risk_score": risk_data.get("risk_score", 0),
             "is_risky": risk_data.get("is_risky", False),
             "summary": risk_data.get("reason", "No summary"),
             "timestamp": datetime.utcnow(),
             "pr_url": pr_url
         }
+        
         await collection.insert_one(scan_record)
-        logger.info("💾 Scan result saved to MongoDB")
+        logger.info(f"💾 Scan saved: {pr_title} by {pr_author}")
+        
     except Exception as e:
         logger.error(f"❌ DB Save Error: {e}")
 
