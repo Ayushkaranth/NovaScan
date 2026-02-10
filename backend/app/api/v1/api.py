@@ -9,6 +9,6 @@ api_router.include_router(integrations.router, prefix="/integrations", tags=["In
 api_router.include_router(webhooks.router, prefix="/webhooks", tags=["Webhooks"])
 api_router.include_router(onboarding.router, prefix="/onboarding", tags=["onboarding"])
 api_router.include_router(notification.router, prefix="/notifications", tags=["notifications"]) # <--- Add this line
-api_router.include_router(projects.router, prefix="/api/v1/projects", tags=["Projects"])
-api_router.include_router(risks.router, prefix="/api/v1/risks", tags=["Risks"])
+api_router.include_router(projects.router, prefix="/projects", tags=["Projects"])
+api_router.include_router(risks.router, prefix="/risks", tags=["Risks"])
 ## api_router.include_router(organizations.router, prefix="/organizations", tags=["organizations"])
