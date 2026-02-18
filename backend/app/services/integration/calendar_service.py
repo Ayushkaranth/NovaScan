@@ -4,9 +4,9 @@ from app.core.database import get_database
 from bson import ObjectId
 
 class CalendarService:
-    def __init__(self):
-        self.db = get_database()
-        self.collection = self.db["calendar_events"]
+    @property
+    def collection(self):
+        return get_database()["calendar_events"]
 
     async def create_event(self, project_id: str, title: str, start_time: datetime, end_time: Optional[datetime] = None, description: str = "", attendees: List[str] = []):
         """
