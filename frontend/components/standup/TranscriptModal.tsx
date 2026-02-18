@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import axios from "axios"
+import api from "@/lib/api"
 import { Loader2, Plus, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -35,7 +35,7 @@ export function TranscriptModal({ projectId, isOpen, onClose, onSuccess }: Trans
         if (!transcript.trim()) return
         setIsAnalyzing(true)
         try {
-            const response = await axios.post(`http://localhost:8000/api/v1/standup/${projectId}/analyze`, {
+            const response = await api.post(`/standup/${projectId}/analyze`, {
                 transcript
             })
             setResult(response.data)
@@ -51,7 +51,7 @@ export function TranscriptModal({ projectId, isOpen, onClose, onSuccess }: Trans
         if (!result) return
         setIsExecuting(true)
         try {
-            await axios.post(`http://localhost:8000/api/v1/standup/${projectId}/execute`, result)
+            await api.post(`/standup/${projectId}/execute`, result)
             onSuccess()
             onClose()
         } catch (error) {

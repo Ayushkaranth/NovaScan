@@ -18,18 +18,18 @@ class AnalysisRequest(BaseModel):
 
 class TaskItem(BaseModel):
     title: str
-    description: str
-    assignee_id: str
-    assignee_name: str
+    description: Optional[str] = ""
+    assignee_id: Optional[str] = None
+    assignee_name: Optional[str] = "Unknown"
 
 class EventItem(BaseModel):
     title: str
-    date: str # YYYY-MM-DD
-    time: str # HH:MM
-    description: str
+    date: Optional[str] = None # YYYY-MM-DD
+    time: Optional[str] = None # HH:MM
+    description: Optional[str] = ""
 
 class BlockerItem(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     user_name: str
     issue: str
 
@@ -45,19 +45,14 @@ async def verify_standup_access(project_id: str, user: User, db):
     """
     Ensures that the user has permission to manage standups for this project.
     HR: Can access all.
-    Manager: Can access only their projects.
+    Manager: Can access all (per user request).
     """
-    if user.role == "hr":
-        return True
-    
-    project = await db["projects"].find_one({"_id": project_id})
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-        
-    if user.role == "manager" and project.get("manager_id") == user.id:
+    if user.role in ["hr", "manager"]:
         return True
         
-    raise HTTPException(status_code=403, detail="Not authorized to manage standups for this project.")
+    # Optional: If we want to restrict employees, we can do it here.
+    # For now, only HR and Managers can add transcripts.
+    raise HTTPException(status_code=403, detail="Not authorized. Only Managers and HR can add transcripts.")
 
 # --- Endpoints ---
 
@@ -74,7 +69,15 @@ async def analyze_standup_transcript(
     await verify_standup_access(project_id, current_user, db)
     
     # Fetch Project & Members
-    project = await db["projects"].find_one({"_id": project_id})
+    # Fetch Project & Members
+    query = {"_id": project_id}
+    if ObjectId.is_valid(project_id):
+        query = {"_id": ObjectId(project_id)}
+    
+    project = await db["projects"].find_one(query)
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
     member_ids = project.get("employee_ids", []) + [project.get("manager_id")]
     
     # Provide a default list if member_ids is messed up, but try to fetch

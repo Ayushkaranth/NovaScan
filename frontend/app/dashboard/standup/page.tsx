@@ -41,10 +41,13 @@ export default function StandupPage() {
                 api.get("/projects?limit=50"),
                 api.get("/auth/me"),
             ]);
-            setProjects(projectsRes.data || []);
+            console.log("Fetched Projects:", projectsRes.data);
+            const projs = projectsRes.data || [];
+            setProjects(projs);
             setUser(userRes.data);
-            if (projectsRes.data.length > 0) {
-                setSelectedProjectId(projectsRes.data[0]._id);
+
+            if (projs.length > 0) {
+                setSelectedProjectId(projs[0]._id);
             }
         } catch (err) {
             console.error("Failed to fetch initial data:", err);
@@ -119,7 +122,14 @@ export default function StandupPage() {
 
             {!selectedProjectId ? (
                 <div className="text-center py-12 bg-muted/20 rounded-xl border border-dashed">
-                    <h3 className="text-lg font-medium text-muted-foreground">Select a project to view standups</h3>
+                    {projects.length === 0 ? (
+                        <div className="space-y-2">
+                            <h3 className="text-lg font-medium text-muted-foreground">No projects found</h3>
+                            <p className="text-sm text-muted-foreground">You need to look at or create a project to view standups.</p>
+                        </div>
+                    ) : (
+                        <h3 className="text-lg font-medium text-muted-foreground">Select a project to view standups</h3>
+                    )}
                 </div>
             ) : (
                 <Tabs defaultValue="overview" className="space-y-6">

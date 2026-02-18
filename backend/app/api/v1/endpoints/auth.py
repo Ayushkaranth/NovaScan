@@ -250,6 +250,13 @@ async def list_users():
             
     return users
 
+@router.get("/me", response_model=User)
+async def read_users_me(current_user: User = Depends(get_current_user)):
+    """
+    Get current user.
+    """
+    return current_user
+
 def check_role(required_role: str):
     async def role_checker(current_user: User = Depends(get_current_user)):
         # HR is the superuser; they bypass all specific role checks
