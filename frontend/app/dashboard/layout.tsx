@@ -11,7 +11,8 @@ import {
   Users,
   ShieldAlert,
   Home,
-  Menu
+  Menu,
+  ListChecks
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -76,6 +77,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             label="Team"
             active={pathname.includes("/dashboard/team")}
           />
+          <NavItem
+            href="/dashboard/standup"
+            icon={<ListChecks className="w-4 h-4" />}
+            label="Standups"
+            active={pathname.includes("/dashboard/standup")}
+          />
         </div>
 
         {/* Bottom Section */}
@@ -128,6 +135,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <NavItem href="/dashboard" icon={<Home className="w-4 h-4" />} label="Overview" active={pathname === "/dashboard"} />
             <NavItem href="/dashboard/projects" icon={<LayoutGrid className="w-4 h-4" />} label="Projects" active={pathname.includes("/projects")} />
             <NavItem href="/dashboard/risks" icon={<ShieldAlert className="w-4 h-4" />} label="Risk Feed" active={pathname.includes("/risks")} />
+            <NavItem href="/dashboard/standup" icon={<ListChecks className="w-4 h-4" />} label="Standups" active={pathname.includes("/standup")} />
             <NavItem href="/dashboard/settings" icon={<Settings className="w-4 h-4" />} label="Settings" active={pathname === "/dashboard/settings"} />
             <Button
               variant="destructive"
