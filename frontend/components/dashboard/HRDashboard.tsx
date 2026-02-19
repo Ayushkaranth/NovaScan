@@ -15,10 +15,25 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { useEffect, useState } from "react";
+import api from "@/lib/api";
 
 export const HRDashboard = ({ orgData, dashboardStats }: { orgData: any, dashboardStats: any }) => {
     const { organization, stats } = orgData;
-    const { total_risks, recent_activity } = dashboardStats || {};
+    const { total_risks } = dashboardStats || {};
+    const [recentActivity, setRecentActivity] = useState<any[]>([]);
+
+    useEffect(() => {
+        const fetchActivity = async () => {
+            try {
+                const res = await api.get('/risks?limit=5');
+                setRecentActivity(res.data || []);
+            } catch (err) {
+                console.error("Failed to fetch recent activity", err);
+            }
+        };
+        fetchActivity();
+    }, []);
 
     return (
         <div className="space-y-8">
@@ -31,12 +46,7 @@ export const HRDashboard = ({ orgData, dashboardStats }: { orgData: any, dashboa
                     </p>
                 </div>
                 <div className="flex gap-3">
-                    <Button asChild variant="outline">
-                        <Link href="/dashboard/settings/team">
-                            <Users className="mr-2 h-4 w-4" />
-                            Manage Team
-                        </Link>
-                    </Button>
+                    {/* Manage Team button removed as per user request */}
                     <Button asChild className="bg-indigo-600 hover:bg-indigo-700 text-white">
                         <Link href="/projects/new">
                             <Plus className="mr-2 h-4 w-4" />
@@ -90,8 +100,8 @@ export const HRDashboard = ({ orgData, dashboardStats }: { orgData: any, dashboa
                     </div>
 
                     <div className="space-y-4">
-                        {recent_activity && recent_activity.length > 0 ? (
-                            recent_activity.map((activity: any, idx: number) => (
+                        {recentActivity && recentActivity.length > 0 ? (
+                            recentActivity.map((activity: any, idx: number) => (
                                 <ActivityItem key={idx} activity={activity} />
                             ))
                         ) : (

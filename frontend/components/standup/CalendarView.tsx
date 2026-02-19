@@ -36,7 +36,8 @@ export function CalendarView({ projectId }: CalendarViewProps) {
             // For now, assuming relative path to Next.js API route which proxies to Backend
             // Or if calling backend directly: 
             const token = localStorage.getItem("token"); // Basic auth assumption
-            const response = await axios.get(`http://localhost:8000/api/v1/standup/${projectId}/events`, {
+            // Use the centralized API instance or relative path
+            const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL || "https://novascan-backend.onrender.com/api/v1"}/standup/${projectId}/events`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setEvents(response.data);

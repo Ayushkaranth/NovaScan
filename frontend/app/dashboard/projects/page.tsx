@@ -71,12 +71,7 @@ export default function ProjectsPage() {
                         Overview of all active engineering projects and their integration status.
                     </p>
                 </div>
-                <Button asChild className="bg-blue-600 hover:bg-blue-700 text-white">
-                    <Link href="/projects/new">
-                        <Plus className="w-4 h-4 mr-2" />
-                        New Project
-                    </Link>
-                </Button>
+                {/* New Project button removed as per user request */}
             </div>
 
             {/* Filters */}
@@ -133,12 +128,23 @@ export default function ProjectsPage() {
 
                         {/* Card Body */}
                         <div className="px-6 py-4 flex-1 border-t border-border bg-muted/50 dark:bg-muted/10 space-y-4">
-                            <div className="space-y-1.5">
-                                <div className="flex justify-between text-xs font-medium text-muted-foreground">
-                                    <span>Health Score</span>
-                                    <span className="text-emerald-600">92%</span>
+                            <div className="space-y-3">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Team</span>
+                                    <Badge variant="outline" className="text-[10px] font-normal border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/30 dark:text-green-400">
+                                        On Track
+                                    </Badge>
                                 </div>
-                                <Progress value={92} className="h-1.5" indicatorClassName="bg-emerald-500" />
+                                <div className="flex -space-x-2 overflow-hidden">
+                                    {[1, 2, 3].map((i) => (
+                                        <div key={i} className="inline-block h-6 w-6 rounded-full ring-2 ring-background bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-muted-foreground">
+                                            {["JD", "MK", "AL"][i - 1]}
+                                        </div>
+                                    ))}
+                                    <div className="inline-block h-6 w-6 rounded-full ring-2 ring-background bg-muted flex items-center justify-center text-[10px] font-medium text-muted-foreground">
+                                        +2
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="flex gap-2 flex-wrap">

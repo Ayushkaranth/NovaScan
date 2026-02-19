@@ -2,7 +2,7 @@ import axios from "axios";
 import { jwtDecode } from "jwt-decode";
 
 // This points to your running Backend
-const API_URL = "http://localhost:8000/api/v1";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://novascan-backend.onrender.com/api/v1";
 
 const api = axios.create({
   baseURL: API_URL,

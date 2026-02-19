@@ -30,7 +30,7 @@ export function Navbar() {
                     </Link>
                     <Link href="/auth">
                         <Button size="sm" className="rounded-full px-5 shadow-md hover:scale-105 transition-all">
-                            Get Started
+                            Sign Up
                         </Button>
                     </Link>
                 </div>
