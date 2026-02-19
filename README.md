@@ -77,7 +77,7 @@ By analyzing the "soft signals" of engineering work—blockers discussed in stan
 
 ```mermaid
 graph TD
-    User[User (Manager/HR)] --> Client[Next.js Frontend]
+    User["User (Manager/HR)"] --> Client[Next.js Frontend]
     Client --> API[FastAPI Backend]
     
     subgraph "Intelligence Engine"
