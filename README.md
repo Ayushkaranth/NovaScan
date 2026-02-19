@@ -6,7 +6,8 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg?style=for-the-badge&logo=python)](https://www.python.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-14-black.svg?style=for-the-badge&logo=next.js)](https://nextjs.org/)
-[![Deployment](https://img.shields.io/badge/Deployed%20on-Render-purple.svg?style=for-the-badge)](https://render.com/)
+[![Backend Deployment](https://img.shields.io/badge/Backend-Render-purple.svg?style=for-the-badge)](https://novascan-backend.onrender.com)
+[![Frontend Deployment](https://img.shields.io/badge/Frontend-Vercel-black.svg?style=for-the-badge&logo=vercel)](https://nova-scan.vercel.app)
 
 **Unlock the hidden velocity of your engineering team.**
 Loop AI connects code, communication, and culture to provide actionable insights for Managers and HR.
