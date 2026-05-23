@@ -186,7 +186,7 @@ async def master_onboard(
             "jira_url": payload.get("jira_url"),
             "jira_email": payload.get("jira_email"),
             "jira_api_token": payload.get("jira_token"),
-            "jira_project_key": "SCRUM",
+            "jira_project_key": "KAN",
             "notion_token": payload.get("notion_token"),
             "notion_database_id": payload.get("notion_database_id")
         }
