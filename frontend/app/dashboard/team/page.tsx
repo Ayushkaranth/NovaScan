@@ -67,10 +67,7 @@ export default function TeamPage() {
                         Manage users, roles, and access permissions for your organization.
                     </p>
                 </div>
-                <Button className="bg-indigo-600 hover:bg-indigo-700 text-white">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Invite Member
-                </Button>
+                {/* Invite Member button removed as per user request */}
             </div>
 
             {/* Filters */}

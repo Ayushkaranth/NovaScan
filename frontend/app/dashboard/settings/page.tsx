@@ -21,6 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import api from "@/lib/api";
 
 export default function SettingsPage() {
@@ -28,6 +29,9 @@ export default function SettingsPage() {
     const [saving, setSaving] = useState(false);
     const [org, setOrg] = useState<any>(null);
     const [projects, setProjects] = useState<any[]>([]);
+    
+    const [activeTab, setActiveTab] = useState("integrations");
+    const [selectedProjectId, setSelectedProjectId] = useState<string>("");
 
     const [formData, setFormData] = useState({
         name: "",
@@ -51,24 +55,52 @@ export default function SettingsPage() {
             const orgRes = await api.get("/organizations/me");
             const currentOrg = orgRes.data.organization;
 
-            if (currentOrg) {
-                setOrg(currentOrg);
-                setFormData({
-                    name: currentOrg.name || "",
-                    github_token: currentOrg.settings?.github_access_token || "",
-                    slack_token: currentOrg.settings?.slack_bot_token || "",
-                    slack_channel: currentOrg.settings?.slack_channel || "",
-                    jira_url: currentOrg.settings?.jira_url || "",
-                    jira_email: currentOrg.settings?.jira_email || "",
-                    jira_token: currentOrg.settings?.jira_api_token || "",
-                    notion_token: currentOrg.settings?.notion_token || "",
-                    notion_database_id: currentOrg.settings?.notion_database_id || ""
-                });
+            // 2. Fetch Projects
+            const projRes = await api.get("/projects?limit=100");
+            const fetchedProjects = projRes.data || [];
+            
+            setOrg(currentOrg);
+            setProjects(fetchedProjects);
+
+            let initialFormData = {
+                name: currentOrg?.name || "",
+                github_token: "",
+                slack_token: "",
+                slack_channel: "",
+                jira_url: "",
+                jira_email: "",
+                jira_token: "",
+                notion_token: "",
+                notion_database_id: ""
+            };
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const projectIdFromUrl = urlParams.get('project');
+            
+            let initialProject = null;
+            if (projectIdFromUrl && fetchedProjects.find((p: any) => p._id === projectIdFromUrl)) {
+                initialProject = fetchedProjects.find((p: any) => p._id === projectIdFromUrl);
+                setSelectedProjectId(projectIdFromUrl);
+            } else if (fetchedProjects.length > 0) {
+                initialProject = fetchedProjects[0];
+                setSelectedProjectId(fetchedProjects[0]._id);
             }
 
-            // 2. Fetch Projects (for deletion list)
-            const projRes = await api.get("/projects?limit=100");
-            setProjects(projRes.data || []);
+            if (initialProject && initialProject.settings) {
+                initialFormData = {
+                    ...initialFormData,
+                    github_token: initialProject.settings.github_access_token || "",
+                    slack_token: initialProject.settings.slack_bot_token || "",
+                    slack_channel: initialProject.settings.slack_channel || "",
+                    jira_url: initialProject.settings.jira_url || "",
+                    jira_email: initialProject.settings.jira_email || "",
+                    jira_token: initialProject.settings.jira_api_token || "",
+                    notion_token: initialProject.settings.notion_token || "",
+                    notion_database_id: initialProject.settings.notion_database_id || ""
+                };
+            }
+
+            setFormData(initialFormData);
 
         } catch (err) {
             console.error("Failed to load settings:", err);
@@ -77,12 +109,68 @@ export default function SettingsPage() {
         }
     };
 
+    const handleProjectChange = (projectId: string) => {
+        setSelectedProjectId(projectId);
+        const project = projects.find(p => p._id === projectId);
+        if (project) {
+            setFormData(prev => ({
+                ...prev,
+                github_token: project.settings?.github_access_token || "",
+                slack_token: project.settings?.slack_bot_token || "",
+                slack_channel: project.settings?.slack_channel || "",
+                jira_url: project.settings?.jira_url || "",
+                jira_email: project.settings?.jira_email || "",
+                jira_token: project.settings?.jira_api_token || "",
+                notion_token: project.settings?.notion_token || "",
+                notion_database_id: project.settings?.notion_database_id || ""
+            }));
+        }
+    };
+
     const handleSave = async () => {
         if (!org) return;
         setSaving(true);
         try {
-            await api.put(`/organizations/${org._id}/settings`, formData);
-            // Optionally refresh data or show toast
+            if (activeTab === "general") {
+                await api.put(`/organizations/${org._id}`, { name: formData.name });
+            } else if (activeTab === "integrations") {
+                if (!selectedProjectId) {
+                    alert("Please select a project to save integrations.");
+                    setSaving(false);
+                    return;
+                }
+                await api.put(`/projects/${selectedProjectId}/settings`, {
+                    github_access_token: formData.github_token,
+                    slack_bot_token: formData.slack_token,
+                    slack_channel: formData.slack_channel,
+                    jira_url: formData.jira_url,
+                    jira_email: formData.jira_email,
+                    jira_api_token: formData.jira_token,
+                    notion_token: formData.notion_token,
+                    notion_database_id: formData.notion_database_id
+                });
+                
+                // Update local state
+                setProjects(prev => prev.map(p => {
+                    if (p._id === selectedProjectId) {
+                        return {
+                            ...p,
+                            settings: {
+                                ...p.settings,
+                                github_access_token: formData.github_token,
+                                slack_bot_token: formData.slack_token,
+                                slack_channel: formData.slack_channel,
+                                jira_url: formData.jira_url,
+                                jira_email: formData.jira_email,
+                                jira_api_token: formData.jira_token,
+                                notion_token: formData.notion_token,
+                                notion_database_id: formData.notion_database_id
+                            }
+                        };
+                    }
+                    return p;
+                }));
+            }
             alert("Settings saved successfully!");
         } catch (e) {
             console.error(e);
@@ -141,7 +229,7 @@ export default function SettingsPage() {
                 </Button>
             </div>
 
-            <Tabs defaultValue="integrations" className="space-y-4">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
                 <TabsList className="grid w-full grid-cols-2 md:w-auto md:inline-flex">
                     <TabsTrigger value="integrations">Integrations</TabsTrigger>
                     <TabsTrigger value="general">General</TabsTrigger>
@@ -151,7 +239,31 @@ export default function SettingsPage() {
 
                 {/* === INTEGRATIONS TAB === */}
                 <TabsContent value="integrations" className="space-y-6">
-                    {/* GitHub */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Project Selection</CardTitle>
+                            <CardDescription>Select a project to configure its integrations.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="max-w-md">
+                                <Label>Project</Label>
+                                <Select value={selectedProjectId} onValueChange={handleProjectChange}>
+                                    <SelectTrigger className="mt-1">
+                                        <SelectValue placeholder="Select a project" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {projects.map(p => (
+                                            <SelectItem key={p._id} value={p._id}>{p.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    {selectedProjectId ? (
+                        <>
+                            {/* GitHub */}
                     <Card>
                         <CardHeader className="flex flex-row items-center gap-4 pb-2">
                             <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg">
@@ -283,6 +395,13 @@ export default function SettingsPage() {
                             </div>
                         </CardContent>
                     </Card>
+                        </>
+                    ) : (
+                        <Alert>
+                            <AlertTitle>No project selected</AlertTitle>
+                            <AlertDescription>Please select a project above to configure integrations.</AlertDescription>
+                        </Alert>
+                    )}
                 </TabsContent>
 
                 {/* === GENERAL TAB === */}
