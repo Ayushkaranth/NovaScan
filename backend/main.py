@@ -67,7 +67,7 @@ from app.core.database import connect_to_mongo, close_mongo_connection, connect_
 from app.api.v1.api import api_router
 
 load_dotenv()
-print(f"✅ SLACK_CHANNEL Loaded: {os.getenv('SLACK_CHANNEL')}")
+print(f"[OK] SLACK_CHANNEL Loaded: {os.getenv('SLACK_CHANNEL')}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

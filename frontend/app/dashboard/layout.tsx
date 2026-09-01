@@ -83,10 +83,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             label="Standups"
             active={pathname.includes("/dashboard/standup")}
           />
+          <NavItem
+            href="/dashboard/gmeet"
+            icon={<Activity className="w-4 h-4 text-emerald-500" />}
+            label="Google Meet MOMs"
+            active={pathname.includes("/dashboard/gmeet")}
+          />
         </div>
 
         {/* Bottom Section */}
         <div className="p-4 border-t border-border/50 space-y-4">
+          <NavItem
+            href="/dashboard/settings/byok"
+            icon={<Settings className="w-4 h-4 text-amber-500" />}
+            label="BYOK Security Vault"
+            active={pathname.includes("/dashboard/settings/byok")}
+          />
           <NavItem
             href="/dashboard/settings"
             icon={<Settings className="w-4 h-4" />}
