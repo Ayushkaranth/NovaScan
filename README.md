@@ -2,15 +2,16 @@
 
 <div align="center">
 
-![NovaScan Banner](https://img.shields.io/badge/NovaScan-SaaS%20Intelligence-blue?style=for-the-badge)
+![NovaScan Banner](https://img.shields.io/badge/NovaScan-AI%20Intelligence%20Platform-blue?style=for-the-badge)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg?style=for-the-badge&logo=python)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110-009688.svg?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-14-black.svg?style=for-the-badge&logo=next.js)](https://nextjs.org/)
 [![Privacy](https://img.shields.io/badge/Privacy-Zero%20Data%20Retention-emerald.svg?style=for-the-badge)](https://nova-scan.vercel.app)
 
 **Bridge technical code changes, meeting discussions, and multi-platform SDLC workflows with zero data leakage.**
 
-[Features](#-features) • [Architecture](#-architecture) • [Security & Privacy](#-security--privacy) • [Installation](#-installation) • [Usage](#-usage)
+[Overview](#-overview) • [Key Features](#-key-features) • [Integrations](#-integrations) • [Workflow](#-end-to-end-workflow) • [Architecture](#-architecture) • [Security & Privacy](#-security--privacy-byok--zdr) • [Installation](#-installation--setup)
 
 </div>
 
@@ -20,43 +21,94 @@
 
 - [Overview](#-overview)
 - [Key Features](#-key-features)
-- [Security & Privacy (BYOK & ZDR)](#-security--privacy)
-- [Architecture](#-architecture)
-- [Tech Stack](#️-tech-stack)
-- [Installation](#-installation)
-- [Configuration](#-configuration)
+- [Software & Platform Integrations](#-integrations)
+- [End-to-End Workflow](#-end-to-end-workflow)
+- [System Architecture](#-architecture)
+- [Security & Privacy (BYOK & ZDR)](#-security--privacy-byok--zdr)
+- [Tech Stack Summary](#️-tech-stack)
+- [Installation & Setup](#-installation--setup)
+- [Configuration Reference](#-configuration-reference)
 - [License](#-license)
 
 ---
 
 ## 🌟 Overview
 
-**NovaScan** is a production-grade enterprise intelligence platform designed to bridge technical pull requests, Google Meet discussions, and team communications with automated SDLC workflow triage.
+**NovaScan** is a production-grade, enterprise AI intelligence platform designed to bridge technical pull requests, team meetings, and software development lifecycle (SDLC) workflows with zero data leakage.
 
-Unlike traditional static scanners or isolated tools, NovaScan analyzes code intent alongside team interactions to eliminate false positives, auto-generate Meeting Minutes (MOM) in Notion, provision Jira action tickets, and maintain an auditable risk record without storing corporate data.
+Traditional code scanning and security management tools operate in silos—generating excessive false positives because they lack organizational context. A critical hotfix pushed at 2 AM looks identical to a careless bug until you consider team communication and sprint meeting agreements.
+
+NovaScan solves this by correlating **GitHub code diffs**, **Google Meet transcripts**, **Slack discussions**, and **Daily Standups** in real-time. It analyzes the human intent behind technical changes, auto-generates Meeting Minutes (MOM) in **Notion**, provisions actionable tasks in **Jira**, and alerts teams in **Slack**—all while enforcing strict **Bring Your Own Key (BYOK)** control and **Zero Data Retention (ZDR)** privacy.
 
 ---
 
 ## 🚀 Key Features
 
-### 🎥 Google Meet AI Transcription & MOM Automation
-- **Multi-Format Ingestion**: Accepts transcripts from free Chrome extensions, webhooks, VTT files, or direct text paste.
-- **Automated MOM Publishing**: Generates structured Meeting Minutes (MOM) and auto-publishes them to **Notion**.
-- **Jira Action Provisioning**: Extracts actionable technical tasks and automatically creates tickets in **Jira**.
-
 ### 🧠 Contextual AI Risk & Intent Analysis
-- **Intent-Aware Risk Scoring**: Leverages LLMs to evaluate PR diffs alongside Slack context and meeting dialogue.
-- **False Positive Elimination**: Differentiates between deliberate, developer-explained hotfixes and unmonitored architectural risks.
-- **Multi-Channel Fan-Out**: Dispatches alerts to Slack and tracks real-time risk heatmaps.
+- **Intent-Aware Code Scoring**: Analyzes GitHub Pull Request diffs alongside Slack chat history and meeting agreements to distinguish between emergency hotfixes and genuine security regressions.
+- **False Positive Elimination**: Reduces alert fatigue by understanding developer discussions prior to deployment.
+- **Automated Triage Routing**: Automatically flags high-risk PRs for priority review and attaches actionable mitigation guidance.
+
+### 🎥 Google Meet AI Transcription & Meeting Minutes (MOM)
+- **Multi-Source Ingestion**: Ingests transcripts from free Chrome extensions, webhooks, VTT audio logs, or direct text paste.
+- **Automated Notion MOM Publishing**: Formats meeting dialogue into structured Meeting Minutes (Executive Summary, Key Decisions, Risks) and auto-publishes to **Notion**.
+- **Automated Jira Ticket Provisioning**: Identifies actionable technical tasks from meeting transcripts and auto-creates structured tickets in **Jira**.
 
 ### 🔐 Enterprise BYOK & BYOM Security Vault
-- **Bring Your Own Key (BYOK)**: Teams supply their own API keys (**Google Gemini**, **OpenAI**, **Anthropic**, or **Ollama**). All chat context remains strictly within customer accounts.
-- **AES-256 Encryption**: Client credentials are encrypted at rest using AES-256 envelope encryption (`crypto.py`).
-- **Free System Fallback**: Automatically falls back to our system's free Google Gemini API key if no custom key is provided.
+- **Bring Your Own Key (BYOK)**: Enterprise teams configure their own API keys (**Google Gemini**, **OpenAI GPT-4o**, **Anthropic Claude**, or self-hosted **Ollama** endpoints).
+- **AES-256 Envelope Encryption**: Client API keys are encrypted at rest using AES-256 (`crypto.py`). Plaintext credentials are never stored or exposed.
+- **Zero-Cost System Fallback**: If a client team does not provide a custom key, NovaScan automatically falls back to our system's free Google Gemini API key as a zero-cost default.
 
-### 🛡️ Zero Data Retention (ZDR) Privacy
-- **In-Memory Execution**: Code diffs and full transcript text are evaluated strictly in-memory within ephemeral tasks.
-- **Zero Raw Data Persistence**: Corporate source code and meeting audio/text are **never stored** on NovaScan servers or databases.
+### 🛡️ Zero Data Retention (ZDR) Privacy Guarantee
+- **In-Memory Ephemeral Processing**: Code diffs and meeting transcripts are evaluated **strictly in-memory** within asynchronous server tasks.
+- **Zero Corporate Data Persistence**: Source code, audio, and raw transcript text are **never saved** to NovaScan databases or logs. Only non-sensitive audit metadata (risk score, timestamp, ticket IDs) is retained.
+
+### 📊 Role-Based Interactive Dashboard
+- **Manager & Lead View**: Centralized risk heatmap, active PR feeds, and team velocity metrics.
+- **Developer View**: Instant risk diagnostics, actionable fix recommendations, and automated task sync.
+- **Dark Mode Support**: Modern, responsive Next.js dashboard with full dark/light theme persistence.
+
+---
+
+## 🔌 Integrations
+
+NovaScan connects seamlessly with standard software engineering tools:
+
+| Platform / Tool | Integration Mechanism | Functionality |
+| :--- | :--- | :--- |
+| **GitHub** | REST API v3 & Webhooks | Real-time `pull_request` event tracking, HMAC signature validation, and raw diff extraction. |
+| **Google Meet** | Webhooks / Free Extensions / VTT | Meeting transcript ingestion, speaker dialogue parsing, and automated MOM extraction. |
+| **Atlassian Jira** | Jira Cloud REST API v3 | Automated issue ticket provisioning for meeting action items and high-risk PRs. |
+| **Notion** | Notion REST API | Automated publishing of structured Meeting Minutes (MOM) and technical post-mortems. |
+| **Slack** | Slack SDK & Block Kit | Real-time channel discussion context gathering and interactive visual security alerting. |
+| **AI LLM Engines** | Gemini / OpenAI / Claude / Ollama | Multi-provider intelligence engine for risk scoring, intent analysis, and JSON schema enforcement. |
+
+---
+
+## 🔄 End-to-End Workflow
+
+```
+[1. INGESTION]          [2. BYOK & IN-MEMORY ZDR EVALUATION]         [3. AUTOMATED DISPATCH]
+
+  GitHub Webhook ──┐                                                      ┌──> Jira Issue Tickets
+                   ├──> In-Memory Payload ──> BYOK AI Engine ──> AI JSON  │
+  Google Meet ─────┤    Sanitizer & Parser    (Gemini/GPT/   Analysis │──> Notion MOM Pages
+                   │                          Ollama/Claude)          │
+  Slack Events ────┘                                                      └──> Slack Visual Alerts
+```
+
+1. **Ingestion & Parsing**:
+   - GitHub sends a webhook on PR creation/update.
+   - Google Meet transcripts are received via webhook or UI upload.
+   - Ingestion parsers (`github_parser.py`, `gmeet_parser.py`) extract structured text in-memory.
+2. **BYOK & In-Memory ZDR Evaluation**:
+   - The engine checks for customer-configured BYOK keys (or falls back to system free Gemini).
+   - In-memory prompts evaluate code diffs or meeting dialogue for risks, decisions, and action items.
+   - No raw code or transcript text touches permanent database storage (ZDR compliant).
+3. **Automated Multi-Platform Dispatch**:
+   - Action items automatically trigger Jira ticket creation (`jira_service.py`).
+   - Formatted Meeting Minutes are auto-published as Notion pages (`notion_bot.py`).
+   - Security alerts and risk summaries are posted to Slack channels (`slack_service.py`).
 
 ---
 
@@ -64,23 +116,23 @@ Unlike traditional static scanners or isolated tools, NovaScan analyzes code int
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Frontend Layer                           │
+│                     Frontend Layer (Next.js 14)                 │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │  Next.js 14 Dashboard (GMeet, BYOK Vault, Risk Feed)    │  │
+│  │  Interactive Dashboard | GMeet Transcripts | BYOK Vault  │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └────────────────────────┬────────────────────────────────────────┘
-                         │ REST API
+                         │ REST API / CORS
 ┌────────────────────────▼────────────────────────────────────────┐
-│                   Backend Layer (FastAPI)                       │
+│                  Backend Layer (Python FastAPI)                 │
 │  ┌───────────────┐  ┌──────────────┐  ┌──────────────────┐    │
-│  │ GMeet Ingestion│  │ BYOK Router  │  │ ZDR In-Memory    │    │
-│  │ & PR Parser   │  │ & AES Vault  │  │ Risk Analyzer    │    │
+│  │ Ingestion &   │  │ BYOK Vault   │  │ In-Memory ZDR    │    │
+│  │ Webhook Engine│  │ (AES-256)    │  │ Risk Analyzer    │    │
 │  └───────────────┘  └──────────────┘  └──────────────────┘    │
 └─────┬──────────────────┬──────────────────┬───────────────────┘
       │                  │                  │
 ┌─────▼──────┐   ┌──────▼─────┐   ┌───────▼────────┐
-│  GitHub /  │   │   BYOK     │   │   Delivery     │
-│ Google Meet│   │ AI Engine  │   │   Services     │
+│  GitHub &  │   │ Multi-LLM  │   │  Multi-Platform│
+│ Google Meet│   │ Provider   │   │  Delivery      │
 └────────────┘   └────────────┘   └────────────────┘
                        │                    │
              ┌─────────▼────────┐  ┌────────▼────────┐
@@ -91,81 +143,123 @@ Unlike traditional static scanners or isolated tools, NovaScan analyzes code int
 
 ---
 
-## 🛠️ Tech Stack
+## 🛡️ Security & Privacy (BYOK & ZDR)
 
-| Component | Technology | Purpose |
-|-----------|-----------|---------|
-| **Frontend** | **Next.js 14** (App Router) | Full-stack React UI & SSR |
-| | **TailwindCSS** + **Shadcn/UI** | Responsive Styling & UI Components |
-| | **Framer Motion** | Visual Micro-animations |
-| **Backend** | **FastAPI** (Python 3.10) | High-performance Async ASGI Engine |
-| | **AES-256 Vault** (`crypto.py`) | Encrypted Key Management |
-| | **Motor / PyMongo** | Async Database Client for Metadata Logs |
-| **AI Engine** | **Google Gemini / OpenAI / Anthropic / Ollama** | Multi-Provider BYOK Engine |
-| **Integrations**| **Google Meet**, **Notion API**, **Jira Cloud API**, **Slack API**, **GitHub API** | End-to-end SDLC Automation |
+NovaScan is built from the ground up for privacy-conscious enterprise software teams:
+
+1. **Zero Data Retention (ZDR):**
+   - Transcripts, meeting dialogue, and proprietary source code diffs are held **only in transient memory** during the HTTP request lifecycle.
+   - They are garbage-collected immediately after AI evaluation.
+2. **Bring Your Own Key (BYOK):**
+   - All AI calls run against the client company's direct cloud subscription account (Google Cloud, OpenAI, Anthropic, or local Ollama).
+   - Chat context, prompts, and corporate IP remain exclusively under customer ownership.
+3. **AES-256 Envelope Encryption:**
+   - Any API keys configured in the BYOK settings page are encrypted at rest using AES-256-GCM envelope encryption (`crypto.py`).
 
 ---
 
-## 📥 Installation
+## 🛠️ Tech Stack
+
+| Category | Technology | Purpose |
+| :--- | :--- | :--- |
+| **Frontend** | **Next.js 14** (App Router), **React 18** | Dashboard UI framework & SSR |
+| | **Tailwind CSS** + **Shadcn/UI** | Responsive UI styling and components |
+| | **Framer Motion** | Visual micro-animations & transitions |
+| | **Recharts** | Risk telemetry and analytics visualization |
+| **Backend** | **FastAPI** (Python 3.10+) | High-performance async ASGI web framework |
+| | **Pydantic v2** & **Pydantic-Settings** | Schema validation & environment management |
+| | **Motor** & **PyMongo** | Asynchronous MongoDB driver for audit logs |
+| | **Redis (Upstash / Local)** | Fallback caching & rate limiting |
+| | **Cryptographic Vault** | AES-256 encryption helper for client API keys |
+| **AI / LLM** | **Google Gemini 1.5/2.5** | Free default & BYOK model integration |
+| | **OpenAI GPT-4o / Claude 3.5 / Ollama** | Supported BYOK model providers |
+
+---
+
+## 📥 Installation & Setup
 
 ### Prerequisites
-- Python 3.10+
-- Node.js 18+
-- MongoDB Atlas URI
-- Google Gemini API Key (or custom BYOK key)
+- **Python 3.10+** ([Download](https://www.python.org/downloads/))
+- **Node.js 18+** ([Download](https://nodejs.org/))
+- **MongoDB Atlas** or local MongoDB instance
+- **Google Gemini API Key** (or custom BYOK API key)
 
-### 1. Backend Setup
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/Ayushkaranth/NovaScan.git
+cd NovaScan
+```
+
+### 2. Backend Setup
 
 ```bash
 cd backend
 
-# Create & activate virtual environment
+# Create virtual environment
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# Activate virtual environment
+# Windows PowerShell:
+.\.venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Start FastAPI dev server
-uvicorn main:app --reload
+# Start FastAPI development server
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
+Backend will be live at `http://localhost:8000`. API docs available at `http://localhost:8000/docs`.
 
-### 2. Frontend Setup
+### 3. Frontend Setup
 
 ```bash
-cd frontend
+cd ../frontend
 
 # Install dependencies
 npm install
 
-# Run development server
+# Start Next.js development server
 npm run dev
 ```
+Frontend dashboard will be live at `http://localhost:3000`.
 
 ---
 
-## ⚙️ Configuration (`backend/.env`)
+## ⚙️ Configuration Reference
+
+### Backend (`backend/.env`)
 
 ```env
 PROJECT_NAME="NovaScan AI"
 API_V1_STR="/api/v1"
 SECRET_KEY="your_master_jwt_secret_key"
 
-# Database
-MONGODB_URL="mongodb+srv://..."
+# Database Configuration
+MONGODB_URL="mongodb+srv://username:password@cluster.mongodb.net/novascan"
 DB_NAME="novascan"
 REDIS_URL="redis://localhost:6379"
 
 # System Free Fallback AI Key
-GEMINI_API_KEY="AIzaSy..."
+GEMINI_API_KEY="your_google_gemini_api_key"
 
-# Integrations
-SLACK_BOT_TOKEN="xoxb-..."
-GITHUB_ACCESS_TOKEN="ghp_..."
+# External Integrations (Optional)
+SLACK_BOT_TOKEN="xoxb-your-slack-bot-token"
+GITHUB_ACCESS_TOKEN="ghp_your_github_access_token"
+GITHUB_WEBHOOK_SECRET="your_github_webhook_secret"
 JIRA_URL="https://your-domain.atlassian.net"
-JIRA_API_TOKEN="..."
-NOTION_TOKEN="secret_..."
-NOTION_DATABASE_ID="..."
+JIRA_EMAIL="user@company.com"
+JIRA_API_TOKEN="your_jira_api_token"
+NOTION_TOKEN="secret_your_notion_integration_token"
+NOTION_DATABASE_ID="your_notion_database_id"
+```
+
+### Frontend (`frontend/.env.local`)
+
+```env
+NEXT_PUBLIC_API_URL="http://localhost:8000/api/v1"
 ```
 
 ---
