@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ShieldCheck, Video, FileText, CheckCircle2, Ticket, AlertTriangle, Sparkles, Lock } from "lucide-react";
 
+import { API_BASE_URL } from "@/lib/api";
+
 export default function GMeetDashboardPage() {
   const [meetingTitle, setMeetingTitle] = useState("Google Meet Sprint Sync");
   const [transcriptText, setTranscriptText] = useState(
@@ -32,7 +34,7 @@ export default function GMeetDashboardPage() {
     setResult(null);
 
     try {
-      const response = await fetch("http://localhost:8000/api/v1/gmeet/transcript", {
+      const response = await fetch(`${API_BASE_URL}/gmeet/transcript`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

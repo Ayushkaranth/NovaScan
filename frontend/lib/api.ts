@@ -1,11 +1,11 @@
 import axios from "axios";
 import { jwtDecode } from "jwt-decode";
 
-// This points to your running Backend
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://novascan-backend.onrender.com/api/v1";
+// Dynamic API Base URL for Dev vs Production
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: API_BASE_URL,
   headers: {
     "Content-Type": "application/json",
   },
@@ -24,9 +24,7 @@ export const getUserFromToken = () => {
   return null;
 };
 
-// Automatic Interceptor:
-// Before sending any request, check if we have a Token saved in the browser.
-// If yes, attach it to the header.
+// Automatic Interceptor: Attach bearer token to requests if present
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("token");

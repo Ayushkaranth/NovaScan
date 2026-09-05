@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Key, Shield, Sparkles, CheckCircle2, Lock, Cpu, Server } from "lucide-react";
 
+import { API_BASE_URL } from "@/lib/api";
+
 export default function BYOKSettingsPage() {
   const [provider, setProvider] = useState("gemini");
   const [apiKey, setApiKey] = useState("");
@@ -20,7 +22,7 @@ export default function BYOKSettingsPage() {
     setStatusMessage(null);
 
     try {
-      const res = await fetch("http://localhost:8000/api/v1/settings/byok", {
+      const res = await fetch(`${API_BASE_URL}/settings/byok`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

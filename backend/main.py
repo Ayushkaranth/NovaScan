@@ -86,15 +86,17 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
 
-# --- CONFIGURE CORS ONCE ---
-# Allow both localhost and 127.0.0.1 to match your Google Console settings
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://nova-scan.vercel.app",
+]
+if getattr(settings, "FRONTEND_URL", None) and settings.FRONTEND_URL not in origins:
+    origins.append(settings.FRONTEND_URL)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://nova-scan.vercel.app",
-    ],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

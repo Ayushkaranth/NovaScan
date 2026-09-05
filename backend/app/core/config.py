@@ -2,37 +2,60 @@ from pydantic_settings import BaseSettings
 from typing import Optional
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Loop AI"
+    PROJECT_NAME: str = "NovaScan AI"
     API_V1_STR: str = "/api/v1"
     
+    # Environment Base URLs
+    FRONTEND_URL: str = "http://localhost:3000"
+    BASE_URL: str = "http://localhost:8000"
+    
     # Security
-    SECRET_KEY: str
+    SECRET_KEY: str = "novascan_secret_jwt_key_2026"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    ENCRYPTION_SECRET_KEY: Optional[str] = "novascan_master_aes256_key"
     
     # Database
-    MONGODB_URL: str
-    DB_NAME: str
-    REDIS_URL: str
+    MONGODB_URL: str = "mongodb://localhost:27017"
+    DB_NAME: str = "novascan"
+    REDIS_URL: str = "redis://localhost:6379"
     
-    # AI
-    GEMINI_API_KEY: str
+    # AI Fallback Key
+    GEMINI_API_KEY: Optional[str] = None
 
-    # --- External Integrations (Fix for your error) ---
-    # These match the variables in your .env file
+    # --- Enterprise OAuth 2.0 Connectors Settings ---
+    GITHUB_CLIENT_ID: Optional[str] = None
+    GITHUB_CLIENT_SECRET: Optional[str] = None
+    GITHUB_APP_NAME: Optional[str] = "novascan-ai-app"
+
+    SLACK_CLIENT_ID: Optional[str] = None
+    SLACK_CLIENT_SECRET: Optional[str] = None
+    SLACK_REDIRECT_URI: Optional[str] = None
+
+    JIRA_CLIENT_ID: Optional[str] = None
+    JIRA_CLIENT_SECRET: Optional[str] = None
+    JIRA_REDIRECT_URI: Optional[str] = None
+
+    @property
+    def slack_redirect(self) -> str:
+        return self.SLACK_REDIRECT_URI or f"{self.FRONTEND_URL.rstrip('/')}/dashboard/integrations/callback"
+
+    @property
+    def jira_redirect(self) -> str:
+        return self.JIRA_REDIRECT_URI or f"{self.FRONTEND_URL.rstrip('/')}/dashboard/integrations/callback"
+
+    # Legacy & Token Integrations
     TEST_GITHUB_TOKEN: Optional[str] = None
     TEST_JIRA_URL: Optional[str] = None
     TEST_SLACK_TOKEN: Optional[str] = None
-    NOTION_TOKEN: str
-    NOTION_DATABASE_ID: str
+    NOTION_TOKEN: Optional[str] = None
+    NOTION_DATABASE_ID: Optional[str] = None
 
-    RESEND_API_KEY: str
-
-    SMTP_USER: str = "onboarding@resend.dev" 
     RESEND_API_KEY: Optional[str] = None
+    SMTP_USER: str = "onboarding@resend.dev"
 
     class Config:
         env_file = ".env"
         case_sensitive = True
-        extra = "ignore" # This tells Pydantic to ignore any other extra .env vars safely
+        extra = "ignore"
 
 settings = Settings()
