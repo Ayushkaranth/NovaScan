@@ -68,6 +68,13 @@ NovaScan solves this by correlating **GitHub code diffs**, **Google Meet transcr
 - **Developer View**: Instant risk diagnostics, actionable fix recommendations, and automated task sync.
 - **Dark Mode Support**: Modern, responsive Next.js dashboard with full dark/light theme persistence.
 
+### 🔗 1-Click Enterprise OAuth 2.0 Connectors (No Secret Key Sharing)
+- **Zero Key Friction**: Teams connect software tools in one click without manually sharing private Personal Access Tokens (PATs) or secret credentials.
+- **GitHub App Connector**: Auto-subscribes webhooks and issues short-lived installation access tokens with granular read-only repository permissions.
+- **Slack 1-Click OAuth ("Add to Slack")**: Standard OAuth 2.0 authorization (`channels:history`, `chat:write`) exchanging temporary codes for bot tokens.
+- **Atlassian Jira 3LO OAuth**: 3-Legged OAuth integration with automatic background token renewal (`offline_access`).
+- **AES-256 Token Vault**: All OAuth refresh tokens and credentials are encrypted at rest via envelope encryption (`oauth_token_manager.py`).
+
 ---
 
 ## 🔌 Integrations
@@ -76,11 +83,11 @@ NovaScan connects seamlessly with standard software engineering tools:
 
 | Platform / Tool | Integration Mechanism | Functionality |
 | :--- | :--- | :--- |
-| **GitHub** | REST API v3 & Webhooks | Real-time `pull_request` event tracking, HMAC signature validation, and raw diff extraction. |
+| **GitHub App** | 1-Click GitHub App / Webhooks | Real-time `pull_request` event tracking, auto-managed webhooks, and raw diff extraction. |
+| **Slack Workspace** | 1-Click OAuth 2.0 ("Add to Slack") | Real-time channel discussion context gathering and interactive visual security alerting. |
+| **Atlassian Jira** | 3-Legged OAuth 2.0 (3LO) | Automated issue ticket provisioning for meeting action items and high-risk PRs with auto-refresh tokens. |
 | **Google Meet** | Webhooks / Free Extensions / VTT | Meeting transcript ingestion, speaker dialogue parsing, and automated MOM extraction. |
-| **Atlassian Jira** | Jira Cloud REST API v3 | Automated issue ticket provisioning for meeting action items and high-risk PRs. |
 | **Notion** | Notion REST API | Automated publishing of structured Meeting Minutes (MOM) and technical post-mortems. |
-| **Slack** | Slack SDK & Block Kit | Real-time channel discussion context gathering and interactive visual security alerting. |
 | **AI LLM Engines** | Gemini / OpenAI / Claude / Ollama | Multi-provider intelligence engine for risk scoring, intent analysis, and JSON schema enforcement. |
 
 ---
