@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, organizations, integrations, webhooks, onboarding, notification, projects, risks, standup, gmeet, settings, oauth
+from app.api.v1.endpoints import auth, organizations, integrations, webhooks, onboarding, notification, projects, risks, standup, gmeet, settings, oauth, dashboard
 
 api_router = APIRouter()
 
@@ -15,3 +15,4 @@ api_router.include_router(standup.router, prefix="/standup", tags=["Standup"])
 api_router.include_router(gmeet.router, prefix="/gmeet", tags=["Google Meet"])
 api_router.include_router(settings.router, prefix="/settings", tags=["Settings"])
 api_router.include_router(oauth.router, prefix="/oauth", tags=["OAuth Connectors"])
+api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
