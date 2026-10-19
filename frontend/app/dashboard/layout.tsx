@@ -47,7 +47,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center shadow-lg shadow-primary/20 group-hover:scale-105 transition-transform">
               <Activity className="w-5 h-5 text-primary-foreground" />
             </div>
-            <span className="font-bold text-lg tracking-tight">Loop AI</span>
+            <span className="font-bold text-lg tracking-tight">NovaScan</span>
           </Link>
         </div>
 
@@ -136,7 +136,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
             <Activity className="w-5 h-5 text-primary-foreground" />
           </div>
-          <span className="font-bold text-lg">Loop AI</span>
+          <span className="font-bold text-lg">NovaScan</span>
         </Link>
         <div className="flex items-center gap-2">
           <ThemeToggle />

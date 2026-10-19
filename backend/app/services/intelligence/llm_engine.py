@@ -29,7 +29,7 @@ async def generate_insight(system_instruction: str, user_content: str, custom_ap
         try:
             genai.configure(api_key=effective_key)
             model = genai.GenerativeModel(
-                model_name="gemini-1.5-flash",
+                model_name="gemini-3.6-flash",
                 system_instruction=system_instruction
             )
             response = await model.generate_content_async(user_content)

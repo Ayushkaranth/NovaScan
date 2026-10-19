@@ -15,7 +15,7 @@ export const IntegrationsBeam = () => {
 
             <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-background pointer-events-none" />
 
-            {/* Central Node (Loop AI) */}
+            {/* Central Node (NovaScan) */}
             <motion.div
                 className="z-20 w-24 h-24 bg-background border-2 border-primary/50 rounded-full flex items-center justify-center relative shadow-[0_0_30px_rgba(59,130,246,0.2)]"
                 initial={{ scale: 0.8, opacity: 0 }}
@@ -25,7 +25,7 @@ export const IntegrationsBeam = () => {
             >
                 <div className="absolute inset-0 rounded-full border border-primary/20 animate-ping opacity-20" />
                 <BrainCircuit className="w-10 h-10 text-primary" />
-                <div className="absolute -bottom-8 font-bold text-sm tracking-widest text-primary">LOOP AI</div>
+                <div className="absolute -bottom-8 font-bold text-sm tracking-widest text-primary">NovaScan</div>
             </motion.div>
 
             {/* Satellites */}

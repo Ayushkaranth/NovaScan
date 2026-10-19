@@ -145,26 +145,6 @@ export default function AuthPage() {
               <h1 className="text-xl font-bold mb-2 text-foreground">Welcome Back</h1>
               <p className="text-muted-foreground text-sm mb-8">Securely sign in to your workspace</p>
 
-              <div className="flex justify-center flex-col items-center gap-4">
-                {loading ? (
-                  <Loader2 className="animate-spin text-indigo-600 w-8 h-8" />
-                ) : (
-                  <GoogleLogin
-                    onSuccess={handleGoogleSuccess}
-                    onError={() => console.log('Login Failed')}
-                    theme="filled_blue"
-                    shape="pill"
-                    text="signin_with"
-                  />
-                )}
-              </div>
-
-              <div className="flex items-center gap-3 my-6">
-                <div className="flex-1 h-px bg-border" />
-                <span className="text-xs text-muted-foreground">or</span>
-                <div className="flex-1 h-px bg-border" />
-              </div>
-
               <form onSubmit={handleEmailLogin} className="flex flex-col gap-3 text-left">
                 <Input
                   type="email"
@@ -191,6 +171,26 @@ export default function AuthPage() {
                   Sign In with Email
                 </Button>
               </form>
+
+              <div className="flex items-center gap-3 my-6">
+                <div className="flex-1 h-px bg-border" />
+                <span className="text-xs text-muted-foreground">or</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+
+              <div className="flex justify-center flex-col items-center gap-4">
+                {loading ? (
+                  <Loader2 className="animate-spin text-indigo-600 w-8 h-8" />
+                ) : (
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={() => console.log('Login Failed')}
+                    theme="filled_blue"
+                    shape="pill"
+                    text="signin_with"
+                  />
+                )}
+              </div>
             </div>
           </TabsContent>
 
@@ -200,26 +200,6 @@ export default function AuthPage() {
               <UserPlus className="w-12 h-12 text-emerald-600 mx-auto mb-4" />
               <h1 className="text-xl font-bold mb-2 text-foreground">Create Account</h1>
               <p className="text-muted-foreground text-sm mb-8">Join NovaScan with your work Google account or email</p>
-
-              <div className="flex justify-center flex-col items-center gap-4">
-                {loading ? (
-                  <Loader2 className="animate-spin text-indigo-600 w-8 h-8" />
-                ) : (
-                  <GoogleLogin
-                    onSuccess={handleGoogleSuccess}
-                    onError={() => console.log('Registration Failed')}
-                    theme="outline"
-                    shape="pill"
-                    text="signup_with"
-                  />
-                )}
-              </div>
-
-              <div className="flex items-center gap-3 my-6">
-                <div className="flex-1 h-px bg-border" />
-                <span className="text-xs text-muted-foreground">or</span>
-                <div className="flex-1 h-px bg-border" />
-              </div>
 
               <form onSubmit={handleEmailRegister} className="flex flex-col gap-3 text-left">
                 <Input
@@ -264,6 +244,26 @@ export default function AuthPage() {
                   Create Account
                 </button>
               </form>
+
+              <div className="flex items-center gap-3 my-6">
+                <div className="flex-1 h-px bg-border" />
+                <span className="text-xs text-muted-foreground">or</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+
+              <div className="flex justify-center flex-col items-center gap-4">
+                {loading ? (
+                  <Loader2 className="animate-spin text-indigo-600 w-8 h-8" />
+                ) : (
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={() => console.log('Registration Failed')}
+                    theme="outline"
+                    shape="pill"
+                    text="signup_with"
+                  />
+                )}
+              </div>
 
               <p className="mt-6 text-[11px] text-muted-foreground">
                 By signing up, you agree to our Terms of Service.

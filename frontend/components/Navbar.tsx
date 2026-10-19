@@ -13,7 +13,7 @@ export function Navbar() {
                     <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center shadow-lg shadow-primary/20 group-hover:scale-105 transition-transform">
                         <Activity className="w-4 h-4 text-primary-foreground" />
                     </div>
-                    <span className="font-bold text-foreground tracking-tight">Loop AI</span>
+                    <span className="font-bold text-foreground tracking-tight">NovaScan</span>
                 </Link>
 
                 <div className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">

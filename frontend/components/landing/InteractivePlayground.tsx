@@ -61,7 +61,7 @@ export function InteractivePlayground() {
     return (
         <div className="max-w-6xl mx-auto mt-32 px-6">
             <div className="text-center mb-12">
-                <h2 className="text-3xl font-bold text-foreground">See Loop AI in Action</h2>
+                <h2 className="text-3xl font-bold text-foreground">See NovaScan in Action</h2>
                 <p className="text-muted-foreground mt-2 text-lg">Select a scenario to see how NovaScan analyzes context in real-time.</p>
             </div>
 

@@ -49,7 +49,7 @@ export default function HeroSection() {
                     transition={{ duration: 0.5, delay: 0.2 }}
                     className="text-lg md:text-xl text-muted-foreground max-w-2xl mb-10 leading-relaxed"
                 >
-                    Loop AI connects <strong>GitHub, Jira, and Slack</strong> to predict blockers, detect scope creep, and automate documentation. Don't let risks merge.
+                    NovaScan connects <strong>GitHub, Jira, and Slack</strong> to predict blockers, detect scope creep, and automate documentation. Don't let risks merge.
                 </motion.p>
 
                 {/* CTAs */}

@@ -44,7 +44,7 @@ const features = [
   },
   {
     title: "Automated Documentation",
-    description: "Forget writing post-mortems manually. Loop AI automatically creates a structured Notion page for every high-risk PR.",
+    description: "Forget writing post-mortems manually. NovaScan automatically creates a structured Notion page for every high-risk PR.",
     header: <AutomatedDocsAnimation />,
     icon: <FileText className="w-4 h-4 text-neutral-500" />,
   },
@@ -154,7 +154,7 @@ export default function Home() {
       <div id="roles" className="scroll-mt-32 py-40 max-w-6xl mx-auto px-6">
         <div className="text-center mb-16 px-6">
           <h2 className="text-3xl md:text-5xl font-bold text-foreground">Built for the whole team.</h2>
-          <p className="text-muted-foreground mt-4 text-xl">Loop AI eliminates the "context gap" between roles.</p>
+          <p className="text-muted-foreground mt-4 text-xl">NovaScan eliminates the "context gap" between roles.</p>
         </div>
         <RoleBasedInsights />
       </div>
@@ -171,7 +171,7 @@ export default function Home() {
           <div className="relative z-10">
             <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-6">Deployment & Security</h2>
             <p className="text-muted-foreground text-lg max-w-2xl mx-auto mb-12">
-              We designed Loop AI to fit into your existing compliance framework. Choose the deployment model that matches your risk profile.
+              We designed NovaScan to fit into your existing compliance framework. Choose the deployment model that matches your risk profile.
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto text-left">
@@ -198,7 +198,7 @@ export default function Home() {
                 </div>
                 <h3 className="font-bold text-foreground text-lg mb-2">On-Premise</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-                  Deploy Loop AI inside your own VPC (AWS/GCP). Your code metadata never leaves your environment.
+                  Deploy NovaScan inside your own VPC (AWS/GCP). Your code metadata never leaves your environment.
                 </p>
                 <div className="flex gap-2">
                   <span className="text-[10px] font-bold uppercase tracking-wider bg-card px-2 py-1 rounded border border-border text-muted-foreground">Docker</span>
@@ -223,7 +223,7 @@ export default function Home() {
             <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
               <Activity className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span className="font-bold text-foreground text-lg">Loop AI</span>
+            <span className="font-bold text-foreground text-lg">NovaScan</span>
           </div>
           <div className="flex gap-8 font-medium">
             <a href="#" className="hover:text-foreground transition-colors">Documentation</a>
@@ -231,7 +231,7 @@ export default function Home() {
             <a href="#" className="hover:text-foreground transition-colors">Status</a>
             <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
           </div>
-          <p>© 2026 Loop AI Inc. All rights reserved.</p>
+          <p>© 2026 NovaScan Inc. All rights reserved.</p>
         </div>
       </footer>
     </div>

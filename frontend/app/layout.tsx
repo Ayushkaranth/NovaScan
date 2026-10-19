@@ -7,7 +7,7 @@ import { Toaster } from "@/components/ui/toaster"; // <--- IMPORT THIS
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Loop AI",
+  title: "NovaScan",
   description: "Engineering Intelligence Layer",
 };
 

@@ -67,7 +67,6 @@ export default function TeamPage() {
                         Manage users, roles, and access permissions for your organization.
                     </p>
                 </div>
-                {/* Invite Member button removed as per user request */}
             </div>
 
             {/* Filters */}

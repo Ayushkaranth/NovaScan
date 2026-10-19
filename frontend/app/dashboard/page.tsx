@@ -39,13 +39,18 @@ export default function Dashboard() {
         }
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to load dashboard:", err);
-      // Optional: Redirect to login if unauthorized
+      // Redirect to login on auth errors (401 interceptor handles this too,
+      // but this is a safety net in case the interceptor fires after this catch)
+      if (err?.response?.status === 401 || err?.response?.status === 403) {
+        router.push('/auth');
+      }
     } finally {
       setLoading(false);
     }
   };
+
 
   if (loading) {
     return (
