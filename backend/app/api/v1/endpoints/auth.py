@@ -120,7 +120,8 @@ from google.auth.transport import requests
 from app.core import security
 from app.core.config import settings
 from app.core.database import get_database
-from app.models.user import User, UserInDB
+from app.models.user import User, UserInDB, UserCreate
+from pydantic import BaseModel
 from bson import ObjectId
 from fastapi.security import OAuth2PasswordBearer
 from app.core.config import settings
@@ -209,6 +210,110 @@ async def google_login(payload: dict = Body(...)):
 
     except ValueError:
         raise HTTPException(status_code=401, detail="Invalid Google token")
+
+# ---- DEV-ONLY LOGIN (bypass Google OAuth for local testing) ----
+@router.post("/dev-login")
+async def dev_login(payload: dict = Body(...)):
+    """
+    Dev-only endpoint: logs in by email directly without Google OAuth.
+    Only enabled when ENVIRONMENT != 'production'.
+    """
+    env = os.getenv("ENVIRONMENT", "development").lower()
+    if env == "production":
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    email = payload.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    
+    db = get_database()
+    user_data = await db["users"].find_one({"email": email})
+    
+    if not user_data:
+        raise HTTPException(status_code=404, detail=f"No user found with email: {email}")
+    
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = security.create_access_token(
+        {"sub": email, "role": user_data.get("role", "admin")},
+        expires_delta=access_token_expires
+    )
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "is_new_user": False,
+        "role": user_data.get("role"),
+        "email": email
+    }
+
+
+class EmailLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@router.post("/register")
+async def register_email(user_in: UserCreate):
+    db = get_database()
+    existing = await db["users"].find_one({"email": user_in.email})
+    if existing:
+        raise HTTPException(status_code=400, detail="An account with this email already exists.")
+    
+    hashed_pw = security.get_password_hash(user_in.password)
+    user_doc = {
+        "_id": str(ObjectId()),
+        "email": user_in.email,
+        "full_name": user_in.full_name,
+        "hashed_password": hashed_pw,
+        "role": None,
+        "created_at": datetime.utcnow()
+    }
+    await db["users"].insert_one(user_doc)
+    
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = security.create_access_token(
+        {"sub": user_in.email, "role": "pending"},
+        expires_delta=access_token_expires
+    )
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "is_new_user": True,
+        "role": None
+    }
+
+
+@router.post("/login")
+async def login_email(request: EmailLoginRequest):
+    db = get_database()
+    user_data = await db["users"].find_one({"email": request.email})
+    
+    if not user_data:
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+    
+    if not user_data.get("hashed_password"):
+        raise HTTPException(
+            status_code=400,
+            detail="Please use Google Sign-In for this account"
+        )
+    
+    if not security.verify_password(request.password, user_data["hashed_password"]):
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+    
+    is_new_user = not user_data.get("role")
+    
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = security.create_access_token(
+        {"sub": request.email, "role": user_data.get("role", "pending")},
+        expires_delta=access_token_expires
+    )
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "is_new_user": is_new_user,
+        "role": user_data.get("role")
+    }
+
 
 @router.put("/update-role")
 async def update_role(

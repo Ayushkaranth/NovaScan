@@ -140,7 +140,7 @@ async def get_my_organization_details(current_user: User = Depends(get_current_u
     db = get_database()
     
     if not current_user.current_org_id:
-        return {"message": "User not part of any organization"}
+        return {"organization": None, "role": current_user.role, "stats": {}, "projects": []}
         
     # Robust Lookup (String OR ObjectId)
     org_query = {"_id": current_user.current_org_id}
@@ -153,7 +153,7 @@ async def get_my_organization_details(current_user: User = Depends(get_current_u
     org = await db["organizations"].find_one(org_query)
     
     if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+        return {"organization": None, "role": current_user.role, "stats": {}, "projects": []}
 
     # 1. Convert Org ID to String (Prevents Crash)
     org["_id"] = str(org["_id"])
