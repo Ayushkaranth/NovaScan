@@ -281,11 +281,66 @@ async def get_organization_members(current_user: User = Depends(get_current_user
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    all_member_ids = org.get("admin_ids", []) + org.get("manager_ids", []) + org.get("employee_ids", [])
-    
+    role_lists = (
+        ("admin", org.get("admin_ids", [])),
+        ("manager", org.get("manager_ids", [])),
+        ("employee", org.get("employee_ids", [])),
+    )
+    role_by_id = {}
+    raw_member_ids = []
+    for role, ids in role_lists:
+        for member_id in ids:
+            key = str(member_id)
+            role_by_id[key] = role
+            raw_member_ids.append(member_id)
+            if ObjectId.is_valid(key):
+                raw_member_ids.append(ObjectId(key))
+
+    unique_ids = list({str(value): value for value in raw_member_ids}.values())
     users = await db["users"].find(
-        {"_id": {"$in": all_member_ids}},
-        {"_id": 1, "name": 1, "email": 1, "role": 1}
+        {"_id": {"$in": unique_ids}},
+        {"_id": 1, "name": 1, "full_name": 1, "email": 1, "role": 1,
+         "profile_image": 1, "picture": 1, "avatar": 1, "current_org_id": 1}
     ).to_list(length=1000)
 
-    return {"members": users}
+    organization_id = str(org["_id"])
+    project_org_ids = [organization_id]
+    if ObjectId.is_valid(organization_id):
+        project_org_ids.append(ObjectId(organization_id))
+    org_projects = await db["projects"].find(
+        {"organization_id": {"$in": project_org_ids}},
+        {"_id": 1, "name": 1, "manager_id": 1, "employee_ids": 1}
+    ).to_list(length=1000)
+
+    project_assignments: Dict[str, List[Dict[str, str]]] = {}
+    for project in org_projects:
+        project_id = str(project.get("_id", ""))
+        project_info = {"id": project_id, "name": project.get("name") or "Untitled project"}
+        assigned_ids = [project.get("manager_id"), *(project.get("employee_ids") or [])]
+        for assigned_id in assigned_ids:
+            if assigned_id is not None:
+                project_assignments.setdefault(str(assigned_id), []).append(project_info)
+
+    members = []
+    seen = set()
+    org_name = org.get("name") or ""
+    for user in users:
+        user_id = str(user.get("_id", ""))
+        if not user_id or user_id in seen:
+            continue
+        seen.add(user_id)
+        assignments = project_assignments.get(user_id, [])
+        member = {
+            "_id": user_id,
+            "employee_id": f"#{user_id[-6:].upper()}" if len(user_id) >= 6 else f"#{user_id.upper()}",
+            "name": user.get("full_name") or user.get("name") or "",
+            "email": user.get("email") or "",
+            "role": role_by_id.get(user_id, user.get("role") or "employee"),
+            "profile_image": user.get("profile_image") or user.get("picture") or user.get("avatar"),
+            "organization_name": org_name,
+            "projects": assignments,
+            "project": ", ".join(item["name"] for item in assignments),
+        }
+        members.append(member)
+
+    return {"members": members, "organization_name": org_name}

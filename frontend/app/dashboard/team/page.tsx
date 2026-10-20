@@ -158,7 +158,7 @@ export default function TeamPage() {
   const fetchProjects = async () => {
     try {
       const res = await api.get("/projects");
-      setProjects(res.data.projects || []);
+      setProjects(Array.isArray(res.data) ? res.data : (res.data.projects || []));
     } catch (err) {
       console.error("Failed to fetch projects:", err);
     }
@@ -169,10 +169,11 @@ export default function TeamPage() {
     const matchesSearch =
       (member.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
       (member.email || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (member._id || "").toLowerCase().includes(searchQuery.toLowerCase());
+      (member._id || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (member.employee_id || "").toLowerCase().includes(searchQuery.toLowerCase());
     
-    const matchesRole = roleFilter === "all" || member.role === roleFilter;
-    const matchesProject = projectFilter === "all" || member.project === projectFilter;
+    const matchesRole = roleFilter === "all" || (member.role || "").toLowerCase() === roleFilter.toLowerCase();
+    const matchesProject = projectFilter === "all" || (member.projects || []).some((project: any) => project.name === projectFilter);
 
     return matchesSearch && matchesRole && matchesProject;
   });
@@ -491,21 +492,21 @@ export default function TeamPage() {
                 >
                   {/* Employee ID */}
                   <TableCell className="font-mono text-sm text-muted-foreground">
-                    #{member._id?.slice(-6).toUpperCase() || `EMP${String(startIndex + index + 1).padStart(3, '0')}`}
+                    {member.employee_id || `#${member._id?.slice(-6).toUpperCase() || `EMP${String(startIndex + index + 1).padStart(3, '0')}`}`}
                   </TableCell>
 
                   {/* Name with Avatar */}
                   <TableCell>
                     <div className="flex items-center gap-3">
                       <Avatar className="h-10 w-10 border-2 border-background shadow-sm">
-                        <AvatarImage src={member.avatar} alt={member.name} />
+                        <AvatarImage src={member.profile_image || member.avatar} alt={member.name || member.email} />
                         <AvatarFallback className="bg-gradient-to-br from-primary/20 to-primary/10 text-primary font-semibold text-sm">
                           {(member.name || "U").split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)}
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex flex-col">
                         <span className="font-medium text-sm">
-                          {member.name || "Unknown User"}
+                          {member.name || member.email || "Unknown User"}
                         </span>
                       </div>
                     </div>
@@ -523,7 +524,7 @@ export default function TeamPage() {
                   {/* Project */}
                   <TableCell>
                     <span className="text-sm font-medium">
-                      {member.project || "—"}
+                      {member.projects?.length ? member.projects.map((project: any) => project.name).join(", ") : "—"}
                     </span>
                   </TableCell>
 
@@ -532,7 +533,7 @@ export default function TeamPage() {
                     <div 
                       className={`inline-flex items-center justify-center px-3 py-1 rounded-md text-xs font-medium border ${getRoleBadgeStyle(member.role).bg} ${getRoleBadgeStyle(member.role).text} ${getRoleBadgeStyle(member.role).border}`}
                     >
-                      {member.role || "Member"}
+                      {(member.role || "Member").replace(/^./, (value: string) => value.toUpperCase())}
                     </div>
                   </TableCell>
 
@@ -686,18 +687,6 @@ export default function TeamPage() {
         </div>
       )}
 
-      {/* Debug Info - Remove this after fixing */}
-      {!loading && members.length === 0 && (
-        <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-          <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
-            Debug Info: No members loaded. Check console for API response.
-          </p>
-          <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
-            Total members: {members.length}
-          </p>
-        </div>
-      )}
-
       {/* View Member Dialog */}
       <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
         <DialogContent className="sm:max-w-[500px]">
@@ -711,13 +700,13 @@ export default function TeamPage() {
             <div className="space-y-6 py-4">
               <div className="flex items-center gap-4">
                 <Avatar className="h-20 w-20 border-2 border-background shadow-lg">
-                  <AvatarImage src={selectedMember.avatar} alt={selectedMember.name} />
+                  <AvatarImage src={selectedMember.profile_image || selectedMember.avatar} alt={selectedMember.name || selectedMember.email} />
                   <AvatarFallback className="bg-gradient-to-br from-primary/20 to-primary/10 text-primary font-semibold text-xl">
                     {(selectedMember.name || "U").split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)}
                   </AvatarFallback>
                 </Avatar>
                 <div>
-                  <h3 className="text-xl font-semibold">{selectedMember.name}</h3>
+                  <h3 className="text-xl font-semibold">{selectedMember.name || "Name not set"}</h3>
                   <p className="text-sm text-muted-foreground">{selectedMember.email}</p>
                 </div>
               </div>
@@ -728,7 +717,7 @@ export default function TeamPage() {
                     Employee ID
                   </div>
                   <div className="col-span-2 text-sm font-mono">
-                    #{selectedMember._id?.slice(-6).toUpperCase()}
+                    {selectedMember.employee_id || `#${selectedMember._id?.slice(-6).toUpperCase()}`}
                   </div>
                 </div>
                 
@@ -740,18 +729,22 @@ export default function TeamPage() {
                     <div 
                       className={`inline-flex items-center justify-center px-3 py-1 rounded-md text-xs font-medium border ${getRoleBadgeStyle(selectedMember.role).bg} ${getRoleBadgeStyle(selectedMember.role).text} ${getRoleBadgeStyle(selectedMember.role).border}`}
                     >
-                      {selectedMember.role || "Member"}
+                      {(selectedMember.role || "Member").replace(/^./, (value: string) => value.toUpperCase())}
                     </div>
                   </div>
                 </div>
                 
                 <div className="grid grid-cols-3 gap-4">
                   <div className="col-span-1 text-sm font-medium text-muted-foreground">
-                    Project
+                    Projects
                   </div>
                   <div className="col-span-2 text-sm">
-                    {selectedMember.project || "Not assigned"}
+                    {selectedMember.projects?.length ? selectedMember.projects.map((project: any) => project.name).join(", ") : "Not assigned"}
                   </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="col-span-1 text-sm font-medium text-muted-foreground">Organization</div>
+                  <div className="col-span-2 text-sm">{selectedMember.organization_name || "—"}</div>
                 </div>
               </div>
             </div>
