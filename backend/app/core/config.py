@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     GITHUB_CLIENT_ID: Optional[str] = None
     GITHUB_CLIENT_SECRET: Optional[str] = None
     GITHUB_APP_NAME: Optional[str] = "novascan-ai-app"
+    GITHUB_REDIRECT_URI: Optional[str] = None
 
     SLACK_CLIENT_ID: Optional[str] = None
     SLACK_CLIENT_SECRET: Optional[str] = None
@@ -36,12 +37,16 @@ class Settings(BaseSettings):
     JIRA_REDIRECT_URI: Optional[str] = None
 
     @property
+    def github_redirect(self) -> str:
+        return self.GITHUB_REDIRECT_URI or f"{self.BASE_URL.rstrip('/')}/api/v1/oauth/github/callback"
+
+    @property
     def slack_redirect(self) -> str:
-        return self.SLACK_REDIRECT_URI or f"{self.FRONTEND_URL.rstrip('/')}/dashboard/integrations/callback"
+        return self.SLACK_REDIRECT_URI or f"{self.BASE_URL.rstrip('/')}/api/v1/oauth/slack/callback"
 
     @property
     def jira_redirect(self) -> str:
-        return self.JIRA_REDIRECT_URI or f"{self.FRONTEND_URL.rstrip('/')}/dashboard/integrations/callback"
+        return self.JIRA_REDIRECT_URI or f"{self.BASE_URL.rstrip('/')}/api/v1/oauth/jira/callback"
 
     # Legacy & Token Integrations
     TEST_GITHUB_TOKEN: Optional[str] = None

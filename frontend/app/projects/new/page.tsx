@@ -3,10 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
-import {
-  ArrowLeft, Github, Slack, Database, Trello,
-  Check, User as UserIcon, Shield
-} from 'lucide-react';
+import { ArrowLeft, Github, Slack, Trello, Check, User as UserIcon, Shield, ExternalLink } from 'lucide-react';
 
 export default function MasterOnboarding() {
   const router = useRouter();
@@ -18,14 +15,8 @@ export default function MasterOnboarding() {
     name: '',
     repo_owner: '',
     repo_name: '',
-    github_token: '',
     manager_id: '',
     employee_ids: [] as string[], // Array for Multi-Select
-    slack_token: '',
-    slack_channel: '',
-    jira_url: '',
-    jira_email: '',
-    jira_token: '',
     notion_token: '',
     notion_database_id: ''
   });
@@ -73,11 +64,11 @@ export default function MasterOnboarding() {
     e.preventDefault();
     setLoading(true);
     try {
-      await api.post('/onboarding/master-onboard', formData);
-      alert('Project Onboarded Successfully!');
-      router.push('/dashboard');
+      if (!formData.manager_id) throw new Error('Select a project manager before continuing.');
+      const { data } = await api.post('/onboarding/master-onboard', formData);
+      router.push(`/dashboard/integrations?project_id=${encodeURIComponent(data.project_id)}`);
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Onboarding Failed');
+      alert(err.response?.data?.detail || err.message || 'Project creation failed');
     } finally {
       setLoading(false);
     }
@@ -119,10 +110,7 @@ export default function MasterOnboarding() {
                     <input name="repo_name" required onChange={handleChange} className="mt-1 block w-full bg-background border border-input text-foreground rounded-md p-2" placeholder="repo-name" />
                   </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">GitHub Token</label>
-                  <input name="github_token" type="password" required onChange={handleChange} className="mt-1 block w-full bg-background border border-input text-foreground rounded-md p-2" placeholder="ghp_..." />
-                </div>
+                <p className="text-sm text-muted-foreground">Connect GitHub with OAuth after creating the project. No personal access token is stored in the project form.</p>
               </div>
             </section>
 
@@ -203,43 +191,14 @@ export default function MasterOnboarding() {
                 Connect Tools
               </h3>
 
-              <div className="space-y-6">
-                {/* Slack */}
-                <div className="bg-muted/30 p-4 rounded-lg border border-border">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Slack className="h-5 w-5 text-muted-foreground" />
-                    <h4 className="font-semibold text-foreground">Slack</h4>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <input name="slack_token" type="password" onChange={handleChange} className="bg-background border border-input rounded p-2 text-sm text-foreground" placeholder="Bot Token (xoxb-...)" />
-                    <input name="slack_channel" onChange={handleChange} className="bg-background border border-input rounded p-2 text-sm text-foreground" placeholder="Channel ID" />
-                  </div>
+              <div className="rounded-lg border border-border bg-muted/30 p-5 space-y-4">
+                <p className="text-sm text-muted-foreground">Authorize services using your organization’s OAuth connections. Connections already configured in Integrations are linked automatically; connect additional services after creating the project.</p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {[{ name: 'GitHub', icon: Github }, { name: 'Slack', icon: Slack }, { name: 'Jira', icon: Trello }].map(({ name, icon: Icon }) => (
+                    <div key={name} className="flex items-center gap-2 rounded-md border border-border bg-background p-3 text-sm font-medium"><Icon className="h-4 w-4" />{name}</div>
+                  ))}
                 </div>
-
-                {/* Jira */}
-                <div className="bg-muted/30 p-4 rounded-lg border border-border">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Trello className="h-5 w-5 text-blue-600" /> {/* Jira Icon substitute */}
-                    <h4 className="font-semibold text-foreground">Jira</h4>
-                  </div>
-                  <div className="grid grid-cols-3 gap-4">
-                    <input name="jira_url" onChange={handleChange} className="bg-background border border-input rounded p-2 text-sm text-foreground" placeholder="domain.atlassian.net" />
-                    <input name="jira_email" onChange={handleChange} className="bg-background border border-input rounded p-2 text-sm text-foreground" placeholder="Email" />
-                    <input name="jira_token" type="password" onChange={handleChange} className="bg-background border border-input rounded p-2 text-sm text-foreground" placeholder="API Token" />
-                  </div>
-                </div>
-
-                {/* Notion */}
-                <div className="bg-muted/30 p-4 rounded-lg border border-border">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Database className="h-5 w-5 text-muted-foreground" />
-                    <h4 className="font-semibold text-foreground">Notion</h4>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <input name="notion_token" type="password" onChange={handleChange} className="bg-background border border-input rounded p-2 text-sm text-foreground" placeholder="Integration Secret" />
-                    <input name="notion_database_id" onChange={handleChange} className="bg-background border border-input rounded p-2 text-sm text-foreground" placeholder="Database ID" />
-                  </div>
-                </div>
+                <p className="flex items-center gap-1 text-xs text-muted-foreground"><ExternalLink className="h-3.5 w-3.5" />After project creation, the OAuth dashboard opens with this project selected.</p>
               </div>
             </section>
 

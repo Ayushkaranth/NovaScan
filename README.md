@@ -215,6 +215,18 @@ source .venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
+# Configure OAuth credentials in backend/.env (create it if needed).
+# Register these callback URLs in the matching provider app:
+#   GitHub:   http://localhost:8000/api/v1/oauth/github/callback
+#   Slack:    http://localhost:8000/api/v1/oauth/slack/callback
+#   Atlassian:http://localhost:8000/api/v1/oauth/jira/callback
+# For hosted deployments, use the public HTTPS backend URL instead.
+# Set BASE_URL, FRONTEND_URL, SECRET_KEY, ENCRYPTION_SECRET_KEY, and the
+# provider pairs GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET,
+# SLACK_CLIENT_ID/SLACK_CLIENT_SECRET, JIRA_CLIENT_ID/JIRA_CLIENT_SECRET.
+# Optional *_REDIRECT_URI values override the callback URL defaults above.
+# Keep all secrets server-side; never add them to NEXT_PUBLIC_* variables.
+
 # Start FastAPI development server
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```

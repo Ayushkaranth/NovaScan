@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, Lock, Sparkles, ExternalLink, ShieldCheck, ArrowRight, RefreshCw } from "lucide-react";
+import { CheckCircle2, ShieldCheck, ArrowRight, RefreshCw } from "lucide-react";
+import api from "@/lib/api";
 
 // --- AUTHENTIC BRAND SVG LOGOS ---
 
@@ -61,8 +62,6 @@ function GoogleMeetLogo({ className = "w-6 h-6" }: { className?: string }) {
   );
 }
 
-import { API_BASE_URL } from "@/lib/api";
-
 export default function IntegrationsHubPage() {
   const [connections, setConnections] = useState<any>({
     github: { status: "not_connected" },
@@ -72,17 +71,20 @@ export default function IntegrationsHubPage() {
     gmeet: { status: "available" }
   });
   const [loading, setLoading] = useState(true);
+  const [configured, setConfigured] = useState<Record<string, boolean>>({});
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
   const fetchConnectionStatuses = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/oauth/status?org_id=default_org`);
-      const data = await res.json();
-      if (data.connections) {
-        setConnections(data.connections);
-      }
+      const { data } = await api.get("/oauth/status");
+      setConnections(data.connections || {});
+      setConfigured(data.configured || {});
+      setError("");
     } catch (err) {
       console.error("Failed to load connection status", err);
+      setError("Could not load organization integrations. Check your sign in and API connection, then refresh.");
     } finally {
       setLoading(false);
     }
@@ -90,48 +92,39 @@ export default function IntegrationsHubPage() {
 
   useEffect(() => {
     fetchConnectionStatuses();
+    const refreshTimer = window.setInterval(fetchConnectionStatuses, 30000);
+    return () => window.clearInterval(refreshTimer);
   }, []);
 
-  const handleConnectGitHub = async () => {
+  const handleConnect = async (provider: "github" | "slack" | "jira") => {
+    setConnecting(provider);
+    setError("");
     try {
-      const res = await fetch(`${API_BASE_URL}/oauth/github/install?org_id=default_org`);
-      const data = await res.json();
-      const cbRes = await fetch(`${API_BASE_URL}/oauth/github/callback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: "inst_12345", installation_id: "987654", org_id: "default_org" })
-      });
-      await fetchConnectionStatuses();
+      const projectId = new URLSearchParams(window.location.search).get("project_id");
+      const { data } = await api.get(`/oauth/${provider}/authorize`, { params: projectId ? { project_id: projectId } : {} });
+      window.location.assign(data.auth_url);
     } catch (err) {
-      console.error("GitHub App OAuth Error", err);
+      const message = (err as any)?.response?.data?.detail || "Could not start OAuth authorization.";
+      setError(message);
+      setConnecting(null);
     }
   };
 
-  const handleConnectSlack = async () => {
+  const handleDisconnect = async (provider: "github" | "slack" | "jira") => {
     try {
-      const cbRes = await fetch(`${API_BASE_URL}/oauth/slack/callback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: "slack_code_12345", org_id: "default_org" })
-      });
+      await api.delete(`/oauth/${provider}`);
       await fetchConnectionStatuses();
     } catch (err) {
-      console.error("Slack OAuth Error", err);
+      setError((err as any)?.response?.data?.detail || `Could not disconnect ${provider}.`);
     }
   };
 
-  const handleConnectJira = async () => {
-    try {
-      const cbRes = await fetch(`${API_BASE_URL}/oauth/jira/callback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: "jira_code_12345", org_id: "default_org" })
-      });
-      await fetchConnectionStatuses();
-    } catch (err) {
-      console.error("Jira OAuth Error", err);
-    }
-  };
+  const actionButton = (provider: "github" | "slack" | "jira", label: string, className?: string) => (
+    <Button onClick={() => handleConnect(provider)} disabled={connecting !== null || !configured[provider]} className={className || "w-full gap-2"}>
+      {connecting === provider ? <RefreshCw className="w-4 h-4 animate-spin" /> : null}
+      {configured[provider] ? label : "OAuth not configured on server"}
+    </Button>
+  );
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
@@ -153,6 +146,8 @@ export default function IntegrationsHubPage() {
         </Button>
       </div>
 
+      {error && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</div>}
+
       {/* Integrations Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
@@ -171,7 +166,7 @@ export default function IntegrationsHubPage() {
                 <Badge variant="secondary" className="text-muted-foreground">Not Connected</Badge>
               )}
             </div>
-            <CardTitle className="text-xl">GitHub App</CardTitle>
+            <CardTitle className="text-xl">GitHub</CardTitle>
             <CardDescription>
               Auto-ingests pull request diffs, validates HMAC webhooks, and correlates code changes with Slack discussions.
             </CardDescription>
@@ -182,11 +177,8 @@ export default function IntegrationsHubPage() {
                 <div className="font-semibold text-foreground">{connections.github.workspace_name}</div>
                 <div className="text-muted-foreground">Scope: {connections.github.scope}</div>
               </div>
-            ) : (
-              <Button onClick={handleConnectGitHub} className="w-full bg-foreground text-background hover:bg-foreground/90 gap-2">
-                <GitHubLogo className="w-4 h-4" /> Install GitHub App
-              </Button>
-            )}
+            ) : actionButton("github", "Connect GitHub", "w-full bg-foreground text-background hover:bg-foreground/90 gap-2")}
+            {connections.github?.status === "connected" && <Button variant="outline" size="sm" onClick={() => handleDisconnect("github")}>Disconnect</Button>}
           </CardContent>
         </Card>
 
@@ -216,11 +208,8 @@ export default function IntegrationsHubPage() {
                 <div className="font-semibold text-foreground">{connections.slack.workspace_name}</div>
                 <div className="text-muted-foreground">Scope: {connections.slack.scope}</div>
               </div>
-            ) : (
-              <Button onClick={handleConnectSlack} className="w-full bg-[#4A154B] hover:bg-[#3F103F] text-white gap-2">
-                <SlackLogo className="w-4 h-4" /> Add to Slack
-              </Button>
-            )}
+            ) : actionButton("slack", "Add to Slack", "w-full bg-[#4A154B] hover:bg-[#3F103F] text-white gap-2")}
+            {connections.slack?.status === "connected" && <Button variant="outline" size="sm" onClick={() => handleDisconnect("slack")}>Disconnect</Button>}
           </CardContent>
         </Card>
 
@@ -250,11 +239,8 @@ export default function IntegrationsHubPage() {
                 <div className="font-semibold text-foreground">{connections.jira.workspace_name}</div>
                 <div className="text-muted-foreground">Scope: {connections.jira.scope}</div>
               </div>
-            ) : (
-              <Button onClick={handleConnectJira} className="w-full bg-[#0052CC] hover:bg-[#003E99] text-white gap-2">
-                <JiraLogo className="w-4 h-4" /> Connect Jira Workspace
-              </Button>
-            )}
+            ) : actionButton("jira", "Connect Jira Workspace", "w-full bg-[#0052CC] hover:bg-[#003E99] text-white gap-2")}
+            {connections.jira?.status === "connected" && <Button variant="outline" size="sm" onClick={() => handleDisconnect("jira")}>Disconnect</Button>}
           </CardContent>
         </Card>
 

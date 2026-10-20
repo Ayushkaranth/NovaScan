@@ -9,6 +9,7 @@ import { InteractivePlayground } from "@/components/landing/InteractivePlaygroun
 import { RoleBasedInsights } from "@/components/landing/RoleBasedInsights";
 import { Github, FileText, Slack, Terminal, Activity, BrainCircuit, Zap, Shield, Lock, Cloud, Server } from "lucide-react";
 import { motion } from "framer-motion";
+import Link from "next/link";
 
 // --- DATA & COMPONENTS ---
 
@@ -229,7 +230,7 @@ export default function Home() {
             <a href="#" className="hover:text-foreground transition-colors">Documentation</a>
             <a href="#" className="hover:text-foreground transition-colors">Security</a>
             <a href="#" className="hover:text-foreground transition-colors">Status</a>
-            <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
+            <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
           </div>
           <p>© 2026 NovaScan Inc. All rights reserved.</p>
         </div>

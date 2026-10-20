@@ -1,221 +1,576 @@
-from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
-import httpx
+from urllib.parse import urlencode, quote
 import logging
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
+from jose import jwt, JWTError
+
 from app.core.config import settings
+from app.core.database import get_database
+from app.models.user import User
+from app.api.v1.endpoints.auth import get_current_user
 from app.services.integration.oauth_token_manager import oauth_token_manager
+from app.services.integration.github_webhooks import ensure_github_webhook
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter()
 
-class OAuthCallbackPayload(BaseModel):
-    code: str
-    org_id: Optional[str] = "default_org"
-    state: Optional[str] = None
-    installation_id: Optional[str] = None
+GITHUB_SCOPES = "repo read:user admin:repo_hook"
+SLACK_SCOPES = "channels:history,channels:read,chat:write,team:read,incoming-webhook"
+JIRA_SCOPES = "read:jira-work write:jira-work read:jira-user offline_access"
 
+
+class OAuthCallbackPayload(BaseModel):
+    code: Optional[str] = None
+    state: Optional[str] = None
+    org_id: Optional[str] = None
+    installation_id: Optional[str] = None
+    provider: Optional[str] = None
+
+
+def _frontend_result_url(status: str, provider: str, message: str, project_id: Optional[str] = None) -> str:
+    params = {"status": status, "provider": provider, "message": message}
+    if project_id:
+        params["project_id"] = project_id
+    return f"{settings.FRONTEND_URL.rstrip('/')}/dashboard/integrations/callback?{urlencode(params)}"
+
+
+def _project_id_from_state(state: Optional[str]) -> Optional[str]:
+    if not state:
+        return None
+    try:
+        return _decode_state(state).get("project_id")
+    except HTTPException:
+        return None
+
+
+def _encode_state(org_id: str, user_id: str, provider: str, project_id: Optional[str] = None) -> str:
+    payload = {
+        "org_id": org_id,
+        "user_id": user_id,
+        "provider": provider,
+        "project_id": project_id,
+        "exp": datetime.utcnow() + timedelta(minutes=20),
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+
+
+def _decode_state(state: str) -> Dict[str, Any]:
+    try:
+        return jwt.decode(state, settings.SECRET_KEY, algorithms=["HS256"])
+    except JWTError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid or expired OAuth state: {e}")
+
+
+async def _validated_callback_state(state: Optional[str], provider: str) -> Dict[str, Any]:
+    if not state:
+        raise HTTPException(status_code=400, detail="Missing OAuth state")
+    claims = _decode_state(state)
+    if claims.get("provider") != provider or not claims.get("org_id") or not claims.get("user_id"):
+        raise HTTPException(status_code=400, detail="OAuth state does not match this provider")
+    project_id = claims.get("project_id")
+    if project_id:
+        db = get_database()
+        if db is not None:
+            from app.services.integration.oauth_token_manager import _find_project
+            project = await _find_project(db, project_id)
+            if not project or str(project.get("organization_id")) != str(claims["org_id"]):
+                raise HTTPException(status_code=403, detail="The selected project does not belong to this organization")
+    return claims
+
+
+def _require_admin_or_manager(user: User):
+    if user.role not in ("admin", "manager", "hr"):
+        raise HTTPException(status_code=403, detail="Only admins and managers can connect integrations")
+    if not user.current_org_id:
+        raise HTTPException(status_code=400, detail="Join an organization before connecting integrations")
+
+
+def _require_client(provider: str, client_id: Optional[str], client_secret: Optional[str]):
+    if not (client_id and client_secret):
+        env_map = {
+            "github": "GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET",
+            "slack": "SLACK_CLIENT_ID and SLACK_CLIENT_SECRET",
+            "jira": "JIRA_CLIENT_ID and JIRA_CLIENT_SECRET",
+        }
+        raise HTTPException(
+            status_code=503,
+            detail=f"{provider.title()} OAuth is not configured on the server. Set {env_map.get(provider, 'client credentials')} in the backend .env.",
+        )
+
+
+async def _validate_project_scope(user: User, project_id: Optional[str]):
+    if not project_id:
+        return
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Project-scoped OAuth requires the database")
+    from app.services.integration.oauth_token_manager import _find_project
+    project = await _find_project(db, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if str(project.get("organization_id")) != str(user.current_org_id):
+        raise HTTPException(status_code=403, detail="Project does not belong to your organization")
+
+
+async def _live_check(provider: str, conn: Dict[str, Any]) -> Dict[str, Any]:
+    summary = {
+        "status": conn.get("status", "not_connected") if conn else "not_connected",
+        "live": False,
+        "workspace_name": None,
+        "scope": None,
+        "connected_at": None,
+        "details": {},
+    }
+    if not conn:
+        return summary
+
+    connected_at = conn.get("connected_at")
+    summary["connected_at"] = connected_at.isoformat() if hasattr(connected_at, "isoformat") else connected_at
+    summary["workspace_name"] = conn.get("workspace_name") or conn.get("team_name")
+    summary["scope"] = conn.get("scope")
+    summary["details"] = {
+        k: conn.get(k)
+        for k in ("team_id", "cloud_id", "login", "site_url", "channel", "channel_id")
+        if conn.get(k)
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            if provider == "github":
+                token = conn.get("access_token")
+                if not token:
+                    return summary
+                res = await client.get(
+                    "https://api.github.com/user",
+                    headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+                )
+                summary["live"] = res.status_code == 200
+                if res.status_code == 200:
+                    user = res.json()
+                    summary["workspace_name"] = user.get("login") or summary["workspace_name"]
+                    summary["details"]["login"] = user.get("login")
+            elif provider == "slack":
+                token = conn.get("bot_token") or conn.get("access_token")
+                if not token:
+                    return summary
+                res = await client.post(
+                    "https://slack.com/api/auth.test",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                data = res.json()
+                summary["live"] = bool(data.get("ok"))
+                if data.get("ok"):
+                    summary["workspace_name"] = data.get("team") or summary["workspace_name"]
+                    summary["details"]["team_id"] = data.get("team_id")
+            elif provider == "jira":
+                token = conn.get("access_token")
+                if not token:
+                    return summary
+                res = await client.get(
+                    "https://api.atlassian.com/oauth/token/accessible-resources",
+                    headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                )
+                summary["live"] = res.status_code == 200
+                if res.status_code == 200:
+                    sites = res.json() or []
+                    if sites:
+                        summary["workspace_name"] = sites[0].get("name") or summary["workspace_name"]
+                        summary["details"]["cloud_id"] = sites[0].get("id")
+                        summary["details"]["site_url"] = sites[0].get("url")
+    except Exception as e:
+        logger.warning("Live OAuth check failed for %s: %s", provider, e)
+        summary["live"] = False
+
+    if not summary["live"] and summary["status"] == "connected":
+        summary["status"] = "expired"
+    return summary
+
+
+async def _after_save(org_id: str, provider: str, project_id: Optional[str]):
+    applied = []
+    webhook = None
+    if project_id:
+        result = await oauth_token_manager.apply_to_project(org_id, project_id, provider)
+        applied = result.get("applied") or []
+        if provider == "github":
+            db = get_database()
+            if db is not None:
+                from app.services.integration.oauth_token_manager import _find_project
+                project = await _find_project(db, project_id)
+                conn = await oauth_token_manager.get_connection(org_id, "github")
+                token = (conn or {}).get("access_token")
+                if project and token:
+                    webhook = await ensure_github_webhook(
+                        token,
+                        project.get("repo_owner") or "",
+                        project.get("repo_name") or "",
+                        org_id,
+                    )
+    return {"applied": applied, "webhook": webhook}
+
+
+# ---------- Status ----------
 @router.get("/status")
-async def get_oauth_status(org_id: str = "default_org"):
-    """
-    Returns active 1-click enterprise OAuth connector statuses.
-    """
-    connections = oauth_token_manager.list_connections(org_id)
+async def get_oauth_status(
+    live: bool = Query(True),
+    project_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+):
+    org_id = current_user.current_org_id
+    if not org_id:
+        raise HTTPException(status_code=400, detail="User is not part of an organization")
+
+    stored = await oauth_token_manager.list_connections(org_id)
+    connections = {}
+    for provider in ("github", "slack", "jira"):
+        if live:
+            conn = await oauth_token_manager.get_connection(org_id, provider)
+            connections[provider] = await _live_check(provider, conn)
+        else:
+            connections[provider] = stored.get(provider, {"status": "not_connected", "live": False})
+
+    project_applied = None
+    if project_id:
+        project_applied = await oauth_token_manager.apply_to_project(org_id, project_id)
+
+    configured = {
+        "github": bool(settings.GITHUB_CLIENT_ID and settings.GITHUB_CLIENT_SECRET),
+        "slack": bool(settings.SLACK_CLIENT_ID and settings.SLACK_CLIENT_SECRET),
+        "jira": bool(settings.JIRA_CLIENT_ID and settings.JIRA_CLIENT_SECRET),
+    }
+
     return {
         "status": "success",
         "org_id": org_id,
-        "connections": {
-            "github": connections.get("github", {"status": "not_connected"}),
-            "slack": connections.get("slack", {"status": "not_connected"}),
-            "jira": connections.get("jira", {"status": "not_connected"}),
-            "notion": connections.get("notion", {"status": "not_connected"}),
-            "gmeet": connections.get("gmeet", {"status": "available"})
-        }
+        "configured": configured,
+        "connections": connections,
+        "project": project_applied,
     }
 
-# --- 1. GITHUB APP INTEGRATION ---
-@router.get("/github/install")
-async def get_github_app_install_url(org_id: str = "default_org"):
-    """
-    Generates official GitHub App Installation URL (No secret API key sharing required).
-    """
-    app_name = settings.GITHUB_APP_NAME or "novascan-ai-app"
-    install_url = f"https://github.com/apps/{app_name}/installations/new?state={org_id}"
+
+# ---------- Authorize (returns URL; frontend redirects) ----------
+@router.get("/github/authorize")
+async def get_github_auth_url(
+    project_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+):
+    _require_admin_or_manager(current_user)
+    _require_client("github", settings.GITHUB_CLIENT_ID, settings.GITHUB_CLIENT_SECRET)
+    await _validate_project_scope(current_user, project_id)
+    state = _encode_state(current_user.current_org_id, current_user.id, "github", project_id)
+    params = {
+        "client_id": settings.GITHUB_CLIENT_ID,
+        "redirect_uri": settings.github_redirect,
+        "scope": GITHUB_SCOPES,
+        "state": state,
+        "allow_signup": "false",
+    }
     return {
         "provider": "github",
-        "install_url": install_url,
-        "mode": "github_app",
-        "scopes": ["pull_requests:read", "contents:read", "webhooks:auto_managed"]
+        "auth_url": f"https://github.com/login/oauth/authorize?{urlencode(params)}",
+        "redirect_uri": settings.github_redirect,
+        "scopes": GITHUB_SCOPES.split(),
     }
 
-@router.post("/github/callback")
-async def handle_github_app_callback(payload: OAuthCallbackPayload):
-    """
-    Processes GitHub App installation webhook callback.
-    """
-    try:
-        installation_id = payload.installation_id or payload.code
-        oauth_token_manager.save_connection(payload.org_id or "default_org", "github", {
-            "installation_id": installation_id,
-            "workspace_name": f"GitHub Org (Installation #{installation_id})",
-            "scope": "Read-Only PR Diffs & Detections",
-            "mode": "GitHub App"
-        })
-        return {
-            "status": "success",
-            "message": "GitHub App installed successfully! Webhooks auto-subscribed.",
-            "provider": "github"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"GitHub App Callback Error: {str(e)}")
 
-# --- 2. SLACK 1-CLICK OAUTH ("Add to Slack") ---
 @router.get("/slack/authorize")
-async def get_slack_auth_url(org_id: str = "default_org"):
-    """
-    Generates official 'Add to Slack' OAuth authorization URL.
-    """
-    client_id = settings.SLACK_CLIENT_ID or "mock_slack_client_id"
-    redirect_uri = settings.slack_redirect
-    scopes = "channels:history,chat:write,team:read"
-    
-    auth_url = f"https://slack.com/oauth/v2/authorize?client_id={client_id}&scope={scopes}&redirect_uri={redirect_uri}&state={org_id}"
+async def get_slack_auth_url(
+    project_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+):
+    _require_admin_or_manager(current_user)
+    _require_client("slack", settings.SLACK_CLIENT_ID, settings.SLACK_CLIENT_SECRET)
+    await _validate_project_scope(current_user, project_id)
+    state = _encode_state(current_user.current_org_id, current_user.id, "slack", project_id)
+    params = {
+        "client_id": settings.SLACK_CLIENT_ID,
+        "scope": SLACK_SCOPES,
+        "redirect_uri": settings.slack_redirect,
+        "state": state,
+    }
     return {
         "provider": "slack",
-        "auth_url": auth_url,
-        "scopes": ["channels:history", "chat:write", "team:read"]
+        "auth_url": f"https://slack.com/oauth/v2/authorize?{urlencode(params)}",
+        "redirect_uri": settings.slack_redirect,
+        "scopes": SLACK_SCOPES.split(","),
     }
+
+
+@router.get("/jira/authorize")
+async def get_jira_auth_url(
+    project_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+):
+    _require_admin_or_manager(current_user)
+    _require_client("jira", settings.JIRA_CLIENT_ID, settings.JIRA_CLIENT_SECRET)
+    await _validate_project_scope(current_user, project_id)
+    state = _encode_state(current_user.current_org_id, current_user.id, "jira", project_id)
+    params = {
+        "audience": "api.atlassian.com",
+        "client_id": settings.JIRA_CLIENT_ID,
+        "scope": JIRA_SCOPES,
+        "redirect_uri": settings.jira_redirect,
+        "state": state,
+        "response_type": "code",
+        "prompt": "consent",
+    }
+    return {
+        "provider": "jira",
+        "auth_url": f"https://auth.atlassian.com/authorize?{urlencode(params, quote_via=quote)}",
+        "redirect_uri": settings.jira_redirect,
+        "scopes": JIRA_SCOPES.split(),
+    }
+
+
+# ---------- Provider GET callbacks (browser land here) ----------
+@router.get("/github/callback")
+async def github_callback_redirect(
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    installation_id: Optional[str] = None,
+):
+    if error:
+        return RedirectResponse(_frontend_result_url("error", "github", error, _project_id_from_state(state)), status_code=302)
+    try:
+        result = await _exchange_github(code=code, state=state, installation_id=installation_id)
+        return RedirectResponse(
+            _frontend_result_url("success", "github", result["message"], result.get("project_id")),
+            status_code=302,
+        )
+    except HTTPException as e:
+        return RedirectResponse(_frontend_result_url("error", "github", str(e.detail)), status_code=302)
+    except Exception as e:
+        logger.exception("GitHub OAuth callback failed")
+        return RedirectResponse(_frontend_result_url("error", "github", str(e)), status_code=302)
+
+
+@router.get("/slack/callback")
+async def slack_callback_redirect(code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
+    if error:
+        return RedirectResponse(_frontend_result_url("error", "slack", error, _project_id_from_state(state)), status_code=302)
+    try:
+        result = await _exchange_slack(code=code, state=state)
+        return RedirectResponse(
+            _frontend_result_url("success", "slack", result["message"], result.get("project_id")),
+            status_code=302,
+        )
+    except HTTPException as e:
+        return RedirectResponse(_frontend_result_url("error", "slack", str(e.detail)), status_code=302)
+    except Exception as e:
+        logger.exception("Slack OAuth callback failed")
+        return RedirectResponse(_frontend_result_url("error", "slack", str(e)), status_code=302)
+
+
+@router.get("/jira/callback")
+async def jira_callback_redirect(code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
+    if error:
+        return RedirectResponse(_frontend_result_url("error", "jira", error, _project_id_from_state(state)), status_code=302)
+    try:
+        result = await _exchange_jira(code=code, state=state)
+        return RedirectResponse(
+            _frontend_result_url("success", "jira", result["message"], result.get("project_id")),
+            status_code=302,
+        )
+    except HTTPException as e:
+        return RedirectResponse(_frontend_result_url("error", "jira", str(e.detail)), status_code=302)
+    except Exception as e:
+        logger.exception("Jira OAuth callback failed")
+        return RedirectResponse(_frontend_result_url("error", "jira", str(e)), status_code=302)
+
+
+# ---------- POST callbacks (frontend-hosted redirect URI fallback) ----------
+@router.post("/github/callback")
+async def handle_github_callback(payload: OAuthCallbackPayload):
+    return await _exchange_github(code=payload.code, state=payload.state, installation_id=payload.installation_id)
+
 
 @router.post("/slack/callback")
 async def handle_slack_callback(payload: OAuthCallbackPayload):
-    """
-    Exchanges authorization code for Slack bot token (xoxb-...) and encrypts via AES-256.
-    """
-    client_id = settings.SLACK_CLIENT_ID
-    client_secret = settings.SLACK_CLIENT_SECRET
-    
-    # If credentials are not set in .env, simulate successful OAuth connection for demo/dev
-    if not (client_id and client_secret):
-        oauth_token_manager.save_connection(payload.org_id or "default_org", "slack", {
-            "bot_token": f"xoxb-mock-oauth-token-{payload.code[:8]}",
-            "team_name": "Acme Engineering Workspace",
-            "team_id": "T12345678",
-            "scope": "channels:history,chat:write"
-        })
-        return {
-            "status": "success",
-            "message": "Slack workspace connected via 1-Click OAuth!",
-            "provider": "slack",
-            "workspace_name": "Acme Engineering Workspace"
-        }
+    return await _exchange_slack(code=payload.code, state=payload.state)
 
-    # Live Server-to-Server Token Exchange
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            res = await client.post("https://slack.com/api/oauth.v2.access", data={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "code": payload.code,
-                "redirect_uri": settings.slack_redirect
-            })
-            data = res.json()
-            if not data.get("ok"):
-                raise HTTPException(status_code=400, detail=f"Slack OAuth Error: {data.get('error')}")
-
-            bot_token = data.get("access_token")
-            team_info = data.get("team", {})
-
-            oauth_token_manager.save_connection(payload.org_id or "default_org", "slack", {
-                "bot_token": bot_token,
-                "team_name": team_info.get("name", "Connected Workspace"),
-                "team_id": team_info.get("id"),
-                "scope": data.get("scope")
-            })
-
-            return {
-                "status": "success",
-                "message": "Slack connected successfully via OAuth!",
-                "provider": "slack",
-                "workspace_name": team_info.get("name")
-            }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Slack Callback Exception: {str(e)}")
-
-# --- 3. ATLASSIAN JIRA 3-LEGGED OAUTH (3LO) ---
-@router.get("/jira/authorize")
-async def get_jira_auth_url(org_id: str = "default_org"):
-    """
-    Generates Atlassian 3-Legged OAuth (3LO) workspace connection URL.
-    """
-    client_id = settings.JIRA_CLIENT_ID or "mock_jira_client_id"
-    redirect_uri = settings.jira_redirect
-    scopes = "read:jira-work write:jira-work offline_access"
-
-    auth_url = f"https://auth.atlassian.com/authorize?audience=api.atlassian.com&client_id={client_id}&scope={scopes}&redirect_uri={redirect_uri}&state={org_id}&response_type=code&prompt=consent"
-    return {
-        "provider": "jira",
-        "auth_url": auth_url,
-        "scopes": ["read:jira-work", "write:jira-work", "offline_access"]
-    }
 
 @router.post("/jira/callback")
 async def handle_jira_callback(payload: OAuthCallbackPayload):
-    """
-    Exchanges code for Atlassian OAuth access token, refresh token, and cloud_id.
-    """
-    client_id = settings.JIRA_CLIENT_ID
-    client_secret = settings.JIRA_CLIENT_SECRET
+    return await _exchange_jira(code=payload.code, state=payload.state)
 
-    if not (client_id and client_secret):
-        oauth_token_manager.save_connection(payload.org_id or "default_org", "jira", {
-            "access_token": f"atlassian-mock-access-token-{payload.code[:8]}",
-            "refresh_token": f"atlassian-mock-refresh-token-{payload.code[:8]}",
-            "workspace_name": "Jira Production Workspace",
-            "cloud_id": "cloud-id-12345",
-            "scope": "read:jira-work write:jira-work offline_access"
-        })
-        return {
-            "status": "success",
-            "message": "Jira Cloud workspace connected via 1-Click OAuth!",
-            "provider": "jira",
-            "workspace_name": "Jira Production Workspace"
-        }
 
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            # 1. Exchange Code for Token
-            res = await client.post("https://auth.atlassian.com/oauth/token", json={
+@router.delete("/{provider}")
+async def disconnect_provider(provider: str, current_user: User = Depends(get_current_user)):
+    _require_admin_or_manager(current_user)
+    if provider not in ("github", "slack", "jira"):
+        raise HTTPException(status_code=400, detail="Unsupported provider")
+    deleted = await oauth_token_manager.delete_connection(current_user.current_org_id, provider)
+    db = get_database()
+    if db is not None:
+        cleanup_fields = {
+            "github": ("settings.github_access_token", "settings.github_login"),
+            "slack": ("settings.slack_bot_token", "settings.slack_channel", "settings.slack_team_id"),
+            "jira": ("settings.jira_oauth_access_token", "settings.jira_refresh_token", "settings.jira_cloud_id", "settings.jira_api_token", "settings.jira_email"),
+        }[provider]
+        await db["projects"].update_many(
+            {"organization_id": current_user.current_org_id},
+            {"$unset": {field: "" for field in cleanup_fields}},
+        )
+    return {"status": "success", "deleted": deleted, "provider": provider}
+
+
+# ---------- Exchanges ----------
+async def _exchange_github(code: Optional[str], state: Optional[str], installation_id: Optional[str] = None):
+    claims = await _validated_callback_state(state, "github")
+    org_id = claims["org_id"]
+    project_id = claims.get("project_id")
+    _require_client("github", settings.GITHUB_CLIENT_ID, settings.GITHUB_CLIENT_SECRET)
+
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing GitHub authorization code")
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        token_res = await client.post(
+            "https://github.com/login/oauth/access_token",
+            headers={"Accept": "application/json"},
+            json={
+                "client_id": settings.GITHUB_CLIENT_ID,
+                "client_secret": settings.GITHUB_CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": settings.github_redirect,
+            },
+        )
+        token_data = token_res.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise HTTPException(status_code=400, detail=f"GitHub token exchange failed: {token_data.get('error_description') or token_data.get('error') or 'provider rejected the authorization code'}")
+
+        user_res = await client.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json"},
+        )
+        gh_user = user_res.json() if user_res.status_code == 200 else {}
+
+    login = gh_user.get("login") or "GitHub"
+    await oauth_token_manager.save_connection(org_id, "github", {
+        "access_token": access_token,
+        "token_type": token_data.get("token_type", "bearer"),
+        "scope": token_data.get("scope") or GITHUB_SCOPES,
+        "login": login,
+        "workspace_name": login,
+        "account_name": gh_user.get("name") or login,
+        "installation_id": installation_id,
+        "mode": "oauth_app",
+    })
+    extra = await _after_save(org_id, "github", project_id)
+    return {
+        "status": "success",
+        "provider": "github",
+        "workspace_name": login,
+        "project_id": project_id,
+        "message": f"GitHub connected as {login}",
+        **extra,
+    }
+
+
+async def _exchange_slack(code: Optional[str], state: Optional[str]):
+    claims = await _validated_callback_state(state, "slack")
+    org_id = claims["org_id"]
+    project_id = claims.get("project_id")
+    _require_client("slack", settings.SLACK_CLIENT_ID, settings.SLACK_CLIENT_SECRET)
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing Slack authorization code")
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        res = await client.post(
+            "https://slack.com/api/oauth.v2.access",
+            data={
+                "client_id": settings.SLACK_CLIENT_ID,
+                "client_secret": settings.SLACK_CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": settings.slack_redirect,
+            },
+        )
+        data = res.json()
+        if not data.get("ok"):
+            raise HTTPException(status_code=400, detail=f"Slack OAuth error: {data.get('error')}")
+
+    team = data.get("team") or {}
+    incoming = data.get("incoming_webhook") or {}
+    bot_token = data.get("access_token")
+    workspace = team.get("name") or "Slack workspace"
+
+    await oauth_token_manager.save_connection(org_id, "slack", {
+        "bot_token": bot_token,
+        "access_token": bot_token,
+        "team_name": workspace,
+        "workspace_name": workspace,
+        "team_id": team.get("id"),
+        "bot_user_id": data.get("bot_user_id"),
+        "scope": data.get("scope") or SLACK_SCOPES,
+        "channel": incoming.get("channel"),
+        "channel_id": incoming.get("channel_id"),
+        "incoming_webhook_url": incoming.get("url"),
+    })
+    extra = await _after_save(org_id, "slack", project_id)
+    return {
+        "status": "success",
+        "provider": "slack",
+        "workspace_name": workspace,
+        "project_id": project_id,
+        "message": f"Slack connected: {workspace}",
+        **extra,
+    }
+
+
+async def _exchange_jira(code: Optional[str], state: Optional[str]):
+    claims = await _validated_callback_state(state, "jira")
+    org_id = claims["org_id"]
+    project_id = claims.get("project_id")
+    _require_client("jira", settings.JIRA_CLIENT_ID, settings.JIRA_CLIENT_SECRET)
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing Jira authorization code")
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        token_res = await client.post(
+            "https://auth.atlassian.com/oauth/token",
+            json={
                 "grant_type": "authorization_code",
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "code": payload.code,
-                "redirect_uri": settings.jira_redirect
-            })
-            token_data = res.json()
-            if "access_token" not in token_data:
-                raise HTTPException(status_code=400, detail=f"Jira OAuth Error: {token_data}")
+                "client_id": settings.JIRA_CLIENT_ID,
+                "client_secret": settings.JIRA_CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": settings.jira_redirect,
+            },
+        )
+        token_data = token_res.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise HTTPException(status_code=400, detail=f"Jira token exchange failed: {token_data.get('error_description') or token_data.get('error') or 'provider rejected the authorization code'}")
 
-            # 2. Get Connected Accessible Resources (Cloud ID)
-            headers = {"Authorization": f"Bearer {token_data['access_token']}", "Accept": "application/json"}
-            res_sites = await client.get("https://api.atlassian.com/oauth/token/accessible-resources", headers=headers)
-            sites = res_sites.json()
-            cloud_id = sites[0]["id"] if sites else "default"
-            site_name = sites[0]["name"] if sites else "Jira Workspace"
+        sites_res = await client.get(
+            "https://api.atlassian.com/oauth/token/accessible-resources",
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+        )
+        sites = sites_res.json() if sites_res.status_code == 200 else []
+        site = sites[0] if isinstance(sites, list) and sites else {}
 
-            oauth_token_manager.save_connection(payload.org_id or "default_org", "jira", {
-                "access_token": token_data["access_token"],
-                "refresh_token": token_data.get("refresh_token"),
-                "cloud_id": cloud_id,
-                "workspace_name": site_name,
-                "scope": token_data.get("scope")
-            })
-
-            return {
-                "status": "success",
-                "message": "Jira connected successfully via OAuth!",
-                "provider": "jira",
-                "workspace_name": site_name
-            }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Jira OAuth Callback Exception: {str(e)}")
+    site_name = site.get("name") or "Jira Cloud"
+    await oauth_token_manager.save_connection(org_id, "jira", {
+        "access_token": access_token,
+        "refresh_token": token_data.get("refresh_token"),
+        "token_type": token_data.get("token_type", "bearer"),
+        "expires_in": token_data.get("expires_in"),
+        "scope": token_data.get("scope") or JIRA_SCOPES,
+        "cloud_id": site.get("id"),
+        "site_url": site.get("url"),
+        "workspace_name": site_name,
+    })
+    extra = await _after_save(org_id, "jira", project_id)
+    return {
+        "status": "success",
+        "provider": "jira",
+        "workspace_name": site_name,
+        "project_id": project_id,
+        "message": f"Jira connected: {site_name}",
+        **extra,
+    }

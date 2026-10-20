@@ -12,6 +12,7 @@ from app.services.delivery.notion_bot import notion_bot
 from app.core.database import get_database 
 from app.services.delivery.email_service import send_manager_to_employee_alert
 from app.core.config import settings
+from app.services.integration.oauth_token_manager import oauth_token_manager
 from slack_sdk import WebClient
 
 # Load Environment Variables
@@ -46,10 +47,11 @@ async def get_org_credentials(org_id: str, repo_full_name: str = None):
             
             if project and project.get("settings"):
                 settings_data = project.get("settings")
+                oauth_credentials = await oauth_token_manager.credentials_for_org(org_id)
                 logger.info(f"✅ Loaded credentials from Project: {project.get('name')}")
                 return {
-                    "github_token": settings_data.get("github_access_token"),
-                    "slack_token": settings_data.get("slack_bot_token"),
+                    "github_token": oauth_credentials.get("github_token") or settings_data.get("github_access_token"),
+                    "slack_token": oauth_credentials.get("slack_token") or settings_data.get("slack_bot_token"),
                     "slack_channel": settings_data.get("slack_channel"),
                     "jira_url": settings_data.get("jira_url"),
                     "jira_email": settings_data.get("jira_email"),

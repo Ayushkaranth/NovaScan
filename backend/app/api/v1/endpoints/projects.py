@@ -10,6 +10,21 @@ from app.core.database import get_database
 
 router = APIRouter()
 
+_PROJECT_SECRET_FIELDS = {
+    "github_access_token", "slack_bot_token", "jira_api_token", "jira_oauth_access_token",
+    "jira_refresh_token", "notion_token",
+}
+
+
+def _public_project(project: dict) -> dict:
+    project["_id"] = str(project["_id"])
+    if "organization_id" in project:
+        project["organization_id"] = str(project["organization_id"])
+    project_settings = project.get("settings")
+    if isinstance(project_settings, dict):
+        project["settings"] = {key: value for key, value in project_settings.items() if key not in _PROJECT_SECRET_FIELDS}
+    return project
+
 # 1. LIST PROJECTS (Filtered by User Role)
 @router.get("/")
 async def list_projects(
@@ -34,11 +49,8 @@ async def list_projects(
 
     # 🚨 FIX: Convert ObjectIds to Strings
     results = []
-    for p in projects:
-        p["_id"] = str(p["_id"])
-        if "organization_id" in p:
-            p["organization_id"] = str(p["organization_id"])
-        results.append(p)
+    for project in projects:
+        results.append(_public_project(project))
 
     return results
 
@@ -66,10 +78,7 @@ async def get_project(
          raise HTTPException(status_code=403, detail="Access denied")
 
     # 🚨 FIX: Convert ObjectId to String to prevent 500 Crash
-    project["_id"] = str(project["_id"])
-    project["organization_id"] = str(project["organization_id"])
-
-    return project
+    return _public_project(project)
 
 # 3. DELETE PROJECT
 @router.delete("/{project_id}")
@@ -135,4 +144,4 @@ async def update_project_settings(
         {"$set": set_fields}
     )
 
-    return {"status": "success", "message": "Project settings updated"}
+    return {"status": "success", "message": "Project settings updated"}
