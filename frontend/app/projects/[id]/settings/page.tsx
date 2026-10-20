@@ -28,7 +28,7 @@ type ProjectRecord = {
   employee_ids?: string[];
 };
 type Member = { _id: string; name?: string; full_name?: string; email?: string; role: string };
-type ProviderConnection = { status?: string; live?: boolean; workspace_name?: string; scope?: string };
+type ProviderConnection = { status?: string; live?: boolean; workspace_name?: string; scope?: string; details?: { repository?: string } };
 type OAuthStatus = {
   configured?: Partial<Record<OAuthProvider, boolean>>;
   connections?: Partial<Record<OAuthProvider, ProviderConnection>>;
@@ -261,7 +261,7 @@ export default function ProjectSettingsPage() {
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
           <div>
             <h2 className="text-lg font-semibold">Project integrations</h2>
-            <p className="text-sm text-muted-foreground">These OAuth connections are exclusive to {project.name}.</p>
+            <p className="text-sm text-muted-foreground">These connections are exclusive to {project.name}. GitHub currently uses the OAuth account you authorize to access this project’s configured repository ({project.repo_owner}/{project.repo_name}).</p>
           </div>
           <button type="button" onClick={refreshOAuth} className="self-start rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50 sm:self-auto">Refresh status</button>
         </div>
@@ -275,7 +275,7 @@ export default function ProjectSettingsPage() {
               <article key={id} className="rounded-lg border border-border p-4">
                 <div className="flex items-center gap-3">
                   <div className="rounded-md bg-muted p-2"><Icon className="h-5 w-5" /></div>
-                  <div className="min-w-0"><h3 className="font-semibold">{name}</h3><p className="truncate text-xs text-muted-foreground">{connected ? connection?.workspace_name || 'Connected' : connection?.status === 'expired' ? 'Reconnect required' : 'Not connected'}</p></div>
+                  <div className="min-w-0"><h3 className="font-semibold">{name}</h3><p className="truncate text-xs text-muted-foreground">{connected ? (id === 'github' ? connection?.details?.repository || project.repo_owner + '/' + project.repo_name : connection?.workspace_name || 'Connected') : connection?.status === 'expired' ? 'Reconnect required' : 'Not connected'}</p></div>
                   {connected && <CheckCircle2 className="ml-auto h-5 w-5 shrink-0 text-emerald-500" />}
                 </div>
                 <div className="mt-4">

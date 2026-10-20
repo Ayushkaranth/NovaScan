@@ -12,7 +12,8 @@ import {
   ShieldAlert,
   Home,
   Menu,
-  ListChecks
+  ListChecks,
+  UserRound
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -94,6 +95,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Bottom Section */}
         <div className="p-4 border-t border-border/50 space-y-4">
           <NavItem
+            href="/dashboard/profile"
+            icon={<UserRound className="w-4 h-4" />}
+            label="My Profile"
+            active={pathname === "/dashboard/profile"}
+          />
+          <NavItem
             href="/dashboard/settings/byok"
             icon={<Settings className="w-4 h-4 text-amber-500" />}
             label="BYOK Security Vault"
@@ -148,6 +155,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <NavItem href="/dashboard/projects" icon={<LayoutGrid className="w-4 h-4" />} label="Projects" active={pathname.includes("/projects")} />
             <NavItem href="/dashboard/risks" icon={<ShieldAlert className="w-4 h-4" />} label="Risk Feed" active={pathname.includes("/risks")} />
             <NavItem href="/dashboard/standup" icon={<ListChecks className="w-4 h-4" />} label="Standups" active={pathname.includes("/standup")} />
+            <NavItem href="/dashboard/profile" icon={<UserRound className="w-4 h-4" />} label="My Profile" active={pathname === "/dashboard/profile"} />
             <NavItem href="/dashboard/settings" icon={<Settings className="w-4 h-4" />} label="Settings" active={pathname === "/dashboard/settings"} />
             <Button
               variant="destructive"

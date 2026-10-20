@@ -4,6 +4,8 @@ import os
 import logging
 import httpx
 import re
+import hmac
+import hashlib
 from typing import Optional
 from datetime import datetime
 from dotenv import load_dotenv
@@ -15,6 +17,7 @@ from app.core.database import get_database
 from app.services.delivery.email_service import send_manager_to_employee_alert
 from app.core.config import settings
 from app.services.integration.oauth_token_manager import oauth_token_manager
+from app.services.integration.github_app import github_app_configured
 from slack_sdk import WebClient
 
 # Load Environment Variables
@@ -56,9 +59,11 @@ async def get_org_credentials(org_id: str, repo_full_name: str = None, project_i
 
         settings_data = project.get("settings", {})
         oauth_credentials = await oauth_token_manager.credentials_for_project(org_id, str(project["_id"]))
+        # GitHub API access must come from the repo-scoped GitHub App token.
+        github_token = oauth_credentials.get("github_token")
         return {
             "project_id": str(project["_id"]),
-            "github_token": oauth_credentials.get("github_token") or settings_data.get("github_access_token"),
+            "github_token": github_token,
             "slack_token": oauth_credentials.get("slack_token") or settings_data.get("slack_bot_token"),
             "slack_channel": settings_data.get("slack_channel"),
             "jira_url": oauth_credentials.get("jira_url") or settings_data.get("jira_url"),
@@ -168,6 +173,68 @@ async def handle_github_webhook(org_id: str, request: Request, project_id: Optio
     except Exception as e:
         logger.error(f"❌ Error in webhook: {e}")
         return {"status": "error", "message": str(e)}
+
+@router.post("/github/app")
+async def handle_github_app_webhook(request: Request):
+    """Verify and route GitHub App events to the exact linked project repository."""
+    # This endpoint is dormant until the GitHub App migration is enabled.
+    webhook_secret = getattr(settings, "GITHUB_WEBHOOK_SECRET", None)
+    if not (webhook_secret and github_app_configured()):
+        return {"status": "disabled"}
+    body = await request.body()
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    expected = "sha256=" + hmac.new(webhook_secret.encode(), body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Invalid GitHub webhook signature")
+    if request.headers.get("X-GitHub-Event") != "pull_request":
+        return {"status": "ignored"}
+    payload = json.loads(body)
+    installation_id = str((payload.get("installation") or {}).get("id") or "")
+    repo = payload.get("repository") or {}
+    repo_name, repo_id = repo.get("full_name") or "", str(repo.get("id") or "")
+    if not (installation_id and repo_name and repo_id):
+        return {"status": "skipped", "message": "Missing installation or repository identity"}
+    db = get_database()
+    if db is None:
+        return {"status": "error", "message": "Database unavailable"}
+    matches = await db["oauth_connections"].find({
+        "provider": "github", "installation_id": installation_id, "repository_id": repo_id,
+    }).to_list(100)
+    for connection in matches:
+        if (connection.get("repository_full_name") or "").casefold() == repo_name.casefold():
+            return await _process_github_app_event(
+                str(connection["org_id"]), str(connection["project_id"]), payload
+            )
+    return {"status": "ignored", "message": "Repository is not linked to a NovaScan project"}
+
+
+async def _process_github_app_event(org_id: str, project_id: str, payload: dict):
+    if payload.get("action") not in ("opened", "synchronize", "reopened"):
+        return {"status": "ignored"}
+    pr = payload.get("pull_request") or {}
+    repo_name = (payload.get("repository") or {}).get("full_name")
+    if not (pr.get("number") and repo_name):
+        return {"status": "skipped", "message": "Missing pull request or repository"}
+    creds = await get_org_credentials(org_id, repo_name, project_id)
+    if not creds or not creds.get("github_token"):
+        return {"status": "error", "message": "Repository-scoped GitHub credentials unavailable"}
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            pr.get("diff_url"),
+            headers={"Authorization": f"Bearer {creds['github_token']}", "Accept": "application/vnd.github.v3.diff"},
+            follow_redirects=True,
+        )
+    diff_text = response.text if response.status_code == 200 else ""
+    risk = await analyze_code(diff_text, {"title": pr.get("title", "Untitled"), "body": pr.get("body") or ""})
+    author = (pr.get("user") or {}).get("login", "Unknown")
+    await save_scan_to_db(org_id, repo_name, pr["number"], risk, pr.get("html_url"), pr_title=pr.get("title", "Untitled"), pr_author=author)
+    await dispatch_notifications(creds, risk, {
+        "summary": f"PR #{pr['number']} in {repo_name}", "title": pr.get("title", "Untitled"),
+        "url": pr.get("html_url"), "repo": repo_name, "pr_id": pr["number"],
+    }, org_id)
+    return {"status": "processed"}
+
 
 async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
     """

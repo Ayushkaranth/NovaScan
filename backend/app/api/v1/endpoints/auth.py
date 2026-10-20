@@ -122,13 +122,46 @@ from app.core.config import settings
 from app.core.database import get_database
 from app.models.user import User, UserInDB, UserCreate
 from pydantic import BaseModel
+from pydantic import Field, field_validator
 from bson import ObjectId
 from fastapi.security import OAuth2PasswordBearer
 from app.core.config import settings
 import os
+import base64
+import binascii
 
 
 router = APIRouter()
+
+
+class ProfileUpdate(BaseModel):
+    full_name: str = Field(min_length=1, max_length=80)
+    profile_image: Optional[str] = Field(default=None, max_length=1_400_000)
+
+    @field_validator("full_name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Name cannot be empty")
+        return value
+
+    @field_validator("profile_image")
+    @classmethod
+    def validate_profile_image(cls, value: Optional[str]) -> Optional[str]:
+        if value in (None, ""):
+            return value
+        header, separator, encoded = value.partition(",")
+        allowed = {"data:image/png;base64", "data:image/jpeg;base64", "data:image/webp;base64"}
+        if not separator or header not in allowed:
+            raise ValueError("Use a PNG, JPEG, or WebP image")
+        try:
+            image_data = base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError):
+            raise ValueError("The uploaded image is invalid")
+        if not image_data or len(image_data) > 1024 * 1024:
+            raise ValueError("Profile images must be 1 MB or smaller")
+        return value
 
 # Replace YOUR_GOOGLE_CLIENT_ID with the one from Google Cloud Console
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
@@ -156,6 +189,52 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
         
     user["_id"] = str(user["_id"])
     return User(**user)
+
+
+@router.get("/me/profile")
+async def get_my_profile(current_user: User = Depends(get_current_user)):
+    db = get_database()
+    user = await db["users"].find_one({"email": current_user.email})
+    if not user:
+        raise HTTPException(status_code=404, detail="User profile not found")
+    return {
+        "id": str(user.get("_id", "")),
+        "full_name": user.get("full_name") or "",
+        "email": user.get("email"),
+        "role": user.get("role"),
+        "profile_image": user.get("profile_image") or user.get("picture"),
+    }
+
+
+@router.put("/me/profile")
+async def update_my_profile(
+    payload: ProfileUpdate,
+    current_user: User = Depends(get_current_user),
+):
+    db = get_database()
+    updates = {"full_name": payload.full_name}
+    unset = {}
+    if payload.profile_image:
+        updates["profile_image"] = payload.profile_image
+        unset["picture"] = ""
+    elif payload.profile_image == "":
+        unset["profile_image"] = ""
+        unset["picture"] = ""
+
+    update_doc = {"$set": updates}
+    if unset:
+        update_doc["$unset"] = unset
+    result = await db["users"].update_one({"email": current_user.email}, update_doc)
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User profile not found")
+    user = await db["users"].find_one({"email": current_user.email})
+    return {
+        "id": str(user.get("_id", "")),
+        "full_name": user.get("full_name") or "",
+        "email": user.get("email"),
+        "role": user.get("role"),
+        "profile_image": user.get("profile_image") or user.get("picture"),
+    }
 
 @router.post("/google-login")
 async def google_login(payload: dict = Body(...)):

@@ -14,6 +14,8 @@ from app.models.user import User
 from app.api.v1.endpoints.auth import get_current_user
 from app.services.integration.oauth_token_manager import oauth_token_manager
 from app.services.integration.github_webhooks import ensure_github_webhook
+# GitHub App migration is temporarily parked until its production environment variables are deployed.
+# from app.services.integration.github_app import github_app_configured, authorize_installation, create_repository_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -170,6 +172,15 @@ async def _live_check(provider: str, conn: Dict[str, Any]) -> Dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             if provider == "github":
+                # Parked GitHub App check (reenable after GITHUB_APP_* deployment):
+                # installation_id = conn.get("installation_id")
+                # repository_id = conn.get("repository_id")
+                # if installation_id and repository_id:
+                #     token = await create_repository_token(installation_id, repository_id)
+                #     owner, _, name = (conn.get("repository_full_name") or "/").partition("/")
+                #     res = await client.get(f"https://api.github.com/repos/{owner}/{name}", headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"})
+                #     summary["live"] = res.status_code == 200 and str(res.json().get("id")) == str(repository_id)
+                #     return summary
                 token = conn.get("access_token")
                 if not token:
                     return summary
@@ -250,6 +261,7 @@ async def get_oauth_configuration(current_user: User = Depends(get_current_user)
         raise HTTPException(status_code=400, detail="User is not part of an organization")
     return {
         "configured": {
+            # "github": github_app_configured(),  # reenable with the GitHub App migration
             "github": bool(settings.GITHUB_CLIENT_ID and settings.GITHUB_CLIENT_SECRET),
             "slack": bool(settings.SLACK_CLIENT_ID and settings.SLACK_CLIENT_SECRET),
             "jira": bool(settings.JIRA_CLIENT_ID and settings.JIRA_CLIENT_SECRET),
@@ -280,6 +292,7 @@ async def get_oauth_status(
             connections[provider] = stored.get(provider, {"status": "not_connected", "live": False})
 
     configured = {
+        # "github": github_app_configured(),  # reenable with the GitHub App migration
         "github": bool(settings.GITHUB_CLIENT_ID and settings.GITHUB_CLIENT_SECRET),
         "slack": bool(settings.SLACK_CLIENT_ID and settings.SLACK_CLIENT_SECRET),
         "jira": bool(settings.JIRA_CLIENT_ID and settings.JIRA_CLIENT_SECRET),
@@ -302,6 +315,18 @@ async def get_github_auth_url(
     current_user: User = Depends(get_current_user),
 ):
     _require_admin_or_manager(current_user)
+    # Temporary GitHub App authorization path; reenable after production GITHUB_APP_* setup:
+    # if not github_app_configured():
+    #     raise HTTPException(status_code=503, detail="GitHub App is not fully configured on the server")
+    # await _validate_project_scope(current_user, project_id)
+    # db = get_database()
+    # from app.services.integration.oauth_token_manager import _find_project
+    # project = await _find_project(db, project_id)
+    # if not project or not (project.get("repo_owner") and project.get("repo_name")):
+    #     raise HTTPException(status_code=422, detail="Set this project's GitHub owner and repository before connecting")
+    # state = _encode_state(current_user.current_org_id, current_user.id, "github", project_id, return_to)
+    # return {"provider": "github", "auth_url": f"https://github.com/apps/{quote(settings.GITHUB_APP_SLUG, safe='')}/installations/new?{urlencode({'state': state})}", "redirect_uri": settings.github_redirect, "repository": f"{project['repo_owner']}/{project['repo_name']}", "access": "selected repository only"}
+
     _require_client("github", settings.GITHUB_CLIENT_ID, settings.GITHUB_CLIENT_SECRET)
     await _validate_project_scope(current_user, project_id)
     state = _encode_state(current_user.current_org_id, current_user.id, "github", project_id, return_to)
@@ -460,7 +485,7 @@ async def disconnect_provider(
         from app.services.integration.oauth_token_manager import _find_project
         project = await _find_project(db, project_id)
         cleanup_fields = {
-            "github": ("settings.github_access_token", "settings.github_login"),
+            "github": ("settings.github_access_token", "settings.github_login", "settings.github_repository"),
             "slack": ("settings.slack_bot_token", "settings.slack_channel", "settings.slack_team_id"),
             "jira": ("settings.jira_oauth_access_token", "settings.jira_refresh_token", "settings.jira_cloud_id", "settings.jira_api_token", "settings.jira_email"),
         }[provider]
@@ -473,12 +498,56 @@ async def disconnect_provider(
 
 
 # ---------- Exchanges ----------
+async def _exchange_github_app_pending(code: Optional[str], state: Optional[str], installation_id: Optional[str] = None):
+    """GitHub App flow parked until the production GITHUB_APP_* values are deployed."""
+    claims = await _validated_callback_state(state, "github")
+    org_id = claims["org_id"]
+    project_id = claims.get("project_id")
+    if not github_app_configured():
+        raise HTTPException(status_code=503, detail="GitHub App is not fully configured on the server")
+    if not code or not installation_id:
+        raise HTTPException(
+            status_code=400,
+            detail="GitHub did not complete the app installation and user authorization. Enable user authorization during installation in the GitHub App settings.",
+        )
+    db = get_database()
+    from app.services.integration.oauth_token_manager import _find_project
+    project = await _find_project(db, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    expected_repo = f"{project.get('repo_owner', '').strip()}/{project.get('repo_name', '').strip()}"
+    try:
+        verified = await authorize_installation(installation_id, code, expected_repo)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    login = verified["login"]
+    await oauth_token_manager.save_connection(org_id, project_id, "github", {
+        "scope": "repository-scoped: contents:read, pull_requests:read",
+        "login": login,
+        "workspace_name": login,
+        "account_name": verified.get("account_name") or login,
+        "installation_id": str(installation_id),
+        "repository_id": verified["repository_id"],
+        "repository_full_name": verified["repository_full_name"],
+        "mode": "github_app_repository",
+    })
+    extra = await _after_save(org_id, "github", project_id)
+    return {
+        "status": "success",
+        "provider": "github",
+        "workspace_name": login,
+        "project_id": project_id,
+        "message": f"GitHub connected to {verified['repository_full_name']} (selected repository only)",
+        **extra,
+    }
+
+
 async def _exchange_github(code: Optional[str], state: Optional[str], installation_id: Optional[str] = None):
+    """Current GitHub OAuth App flow; kept active until the GitHub App migration is deployed."""
     claims = await _validated_callback_state(state, "github")
     org_id = claims["org_id"]
     project_id = claims.get("project_id")
     _require_client("github", settings.GITHUB_CLIENT_ID, settings.GITHUB_CLIENT_SECRET)
-
     if not code:
         raise HTTPException(status_code=400, detail="Missing GitHub authorization code")
 
@@ -496,8 +565,10 @@ async def _exchange_github(code: Optional[str], state: Optional[str], installati
         token_data = token_res.json()
         access_token = token_data.get("access_token")
         if not access_token:
-            raise HTTPException(status_code=400, detail=f"GitHub token exchange failed: {token_data.get('error_description') or token_data.get('error') or 'provider rejected the authorization code'}")
-
+            raise HTTPException(
+                status_code=400,
+                detail=f"GitHub token exchange failed: {token_data.get('error_description') or token_data.get('error') or 'provider rejected the authorization code'}",
+            )
         user_res = await client.get(
             "https://api.github.com/user",
             headers={"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json"},

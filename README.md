@@ -71,7 +71,7 @@ NovaScan solves this by correlating **GitHub code diffs**, **Google Meet transcr
 ### 🔗 1-Click Enterprise OAuth 2.0 Connectors (No Secret Key Sharing)
 - **Project-scoped connections**: Admins and project managers authorize GitHub, Slack, and Jira from an individual project. An organization can have many projects, and each project has its own independent provider connections; there is no shared organization-level integration page.
 - **Zero Key Friction**: Teams connect software tools in one click without manually sharing private Personal Access Tokens (PATs) or secret credentials.
-- **GitHub App Connector**: Auto-subscribes webhooks and issues short-lived installation access tokens with granular read-only repository permissions.
+- **GitHub connector (temporary)**: Uses the existing GitHub OAuth App connection until the repository-scoped GitHub App migration is deployed.
 - **Slack 1-Click OAuth ("Add to Slack")**: Standard OAuth 2.0 authorization (`channels:history`, `chat:write`) exchanging temporary codes for bot tokens.
 - **Atlassian Jira 3LO OAuth**: 3-Legged OAuth integration with automatic background token renewal (`offline_access`).
 - **AES-256 Token Vault**: All OAuth refresh tokens and credentials are encrypted at rest via envelope encryption (`oauth_token_manager.py`).
@@ -84,7 +84,7 @@ NovaScan connects seamlessly with standard software engineering tools:
 
 | Platform / Tool | Integration Mechanism | Functionality |
 | :--- | :--- | :--- |
-| **GitHub App** | 1-Click GitHub App / Webhooks | Real-time `pull_request` event tracking, auto-managed webhooks, and raw diff extraction. |
+| **GitHub** | OAuth App / project connection | Uses the authorized account for the repository configured on the project. |
 | **Slack Workspace** | 1-Click OAuth 2.0 ("Add to Slack") | Real-time channel discussion context gathering and interactive visual security alerting. |
 | **Atlassian Jira** | 3-Legged OAuth 2.0 (3LO) | Automated issue ticket provisioning for meeting action items and high-risk PRs with auto-refresh tokens. |
 | **Google Meet** | Webhooks / Free Extensions / VTT | Meeting transcript ingestion, speaker dialogue parsing, and automated MOM extraction. |
@@ -221,14 +221,30 @@ pip install -r requirements.txt
 # https://app.example.com) and BASE_URL to the public backend origin (for
 # example, https://api.example.com). Do not leave FRONTEND_URL at localhost.
 # Register these callback URLs in the matching provider app:
-#   GitHub:   http://localhost:8000/api/v1/oauth/github/callback
+#   GitHub OAuth App callback (active for now): http://localhost:8000/api/v1/oauth/github/callback
 #   Slack:    http://localhost:8000/api/v1/oauth/slack/callback
 #   Atlassian:http://localhost:8000/api/v1/oauth/jira/callback
 # For hosted deployments, register the matching public HTTPS backend URL
 # (or set each provider's *_REDIRECT_URI to that exact registered URL).
-# Set BASE_URL, FRONTEND_URL, SECRET_KEY, ENCRYPTION_SECRET_KEY, and the
-# provider pairs GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET,
-# SLACK_CLIENT_ID/SLACK_CLIENT_SECRET, JIRA_CLIENT_ID/JIRA_CLIENT_SECRET.
+# TEMPORARY: the active GitHub integration is the existing GitHub OAuth App.
+# Configure GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in backend/.env.
+# The repository-scoped GitHub App migration below is parked until its
+# GITHUB_APP_* variables are deployed; do not switch the provider settings yet.
+# Future GitHub App setup: configure GITHUB_APP_ID, GITHUB_APP_SLUG,
+# GITHUB_APP_PRIVATE_KEY, GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET,
+# and GITHUB_WEBHOOK_SECRET.
+# In GitHub App settings, enable user authorization during installation and use
+# the callback URL above; enable a webhook at
+# https://api.example.com/api/v1/webhooks/github/app for pull_request events.
+# Grant only Metadata: read, Contents: read, and Pull requests: read.
+# Customers choose "Only select repositories" when installing the app. NovaScan
+# verifies the project repository and mints tokens restricted to its repository ID.
+# After the GitHub App migration is deployed, reconnect existing GitHub OAuth
+# connections and revoke the old NovaScan OAuth App grant under GitHub Settings >
+# Applications > Authorized OAuth Apps.
+# Also configure BASE_URL, FRONTEND_URL, SECRET_KEY, ENCRYPTION_SECRET_KEY, and
+# the provider pairs SLACK_CLIENT_ID/SLACK_CLIENT_SECRET,
+# JIRA_CLIENT_ID/JIRA_CLIENT_SECRET.
 # Optional *_REDIRECT_URI values override the callback URL defaults above.
 # Keep all secrets server-side; never add them to NEXT_PUBLIC_* variables.
 # OAuth connections are authorized and managed from each project's page.
@@ -272,10 +288,18 @@ REDIS_URL="redis://localhost:6379"
 # System Free Fallback AI Key
 GEMINI_API_KEY="your_google_gemini_api_key"
 
-# External Integrations (Optional)
+# External Integrations
 SLACK_BOT_TOKEN="xoxb-your-slack-bot-token"
-GITHUB_ACCESS_TOKEN="ghp_your_github_access_token"
-GITHUB_WEBHOOK_SECRET="your_github_webhook_secret"
+# Active GitHub OAuth App credentials (temporary):
+GITHUB_CLIENT_ID="your_github_oauth_client_id"
+GITHUB_CLIENT_SECRET="your_github_oauth_client_secret"
+# Parked GitHub App migration credentials; enable after deployment is ready:
+# GITHUB_APP_ID="your_github_app_id"
+# GITHUB_APP_SLUG="your-github-app-slug"
+# GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\\n...\\n-----END RSA PRIVATE KEY-----"
+# GITHUB_APP_CLIENT_ID="your_github_app_client_id"
+# GITHUB_APP_CLIENT_SECRET="your_github_app_client_secret"
+# GITHUB_WEBHOOK_SECRET="your_github_app_webhook_secret"
 JIRA_URL="https://your-domain.atlassian.net"
 JIRA_EMAIL="user@company.com"
 JIRA_API_TOKEN="your_jira_api_token"
