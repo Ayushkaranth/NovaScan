@@ -43,6 +43,8 @@ def _frontend_result_url(
         if return_to == "new":
             params["project_id"] = project_id
             return f"{settings.FRONTEND_URL.rstrip('/')}/projects/new?{urlencode(params)}"
+        if return_to == "settings":
+            return f"{settings.FRONTEND_URL.rstrip('/')}/projects/{quote(project_id, safe='')}/settings?{urlencode(params)}"
         return f"{settings.FRONTEND_URL.rstrip('/')}/projects/{quote(project_id, safe='')}?{urlencode(params)}"
     return f"{settings.FRONTEND_URL.rstrip('/')}/projects/new?{urlencode(params)}"
 
@@ -60,7 +62,8 @@ def _return_to_from_state(state: Optional[str]) -> str:
     if not state:
         return "project"
     try:
-        return "new" if _decode_state(state).get("return_to") == "new" else "project"
+        return_to = _decode_state(state).get("return_to")
+        return return_to if return_to in ("new", "settings") else "project"
     except HTTPException:
         return "project"
 
@@ -77,7 +80,7 @@ def _encode_state(
         "user_id": user_id,
         "provider": provider,
         "project_id": project_id,
-        "return_to": return_to if return_to in ("project", "new") else "project",
+        "return_to": return_to if return_to in ("project", "new", "settings") else "project",
         "exp": datetime.utcnow() + timedelta(minutes=20),
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")

@@ -19,7 +19,8 @@ import {
   CheckCircle2,
   Loader2,
   PlugZap,
-  Unplug
+  Unplug,
+  Settings
 } from 'lucide-react';
 
 type OAuthProvider = 'github' | 'slack' | 'jira';
@@ -151,7 +152,10 @@ export default function ProjectDashboard() {
             </a>
           </div>
 
-          <a href="#project-integrations" className="px-4 py-2 bg-card border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted/50 transition-colors">Project tools</a>
+          <div className="flex gap-2">
+            <Link href={`/projects/${encodeURIComponent(projectId)}/settings`} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/50"><Settings className="h-4 w-4" /> Settings</Link>
+            <a href="#project-integrations" className="px-4 py-2 bg-card border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted/50 transition-colors">Project tools</a>
+          </div>
         </div>
       </div>
 

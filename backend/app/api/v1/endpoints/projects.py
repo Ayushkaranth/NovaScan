@@ -80,6 +80,79 @@ async def get_project(
     # 🚨 FIX: Convert ObjectId to String to prevent 500 Crash
     return _public_project(project)
 
+
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    repo_owner: Optional[str] = None
+    repo_name: Optional[str] = None
+    manager_id: Optional[str] = None
+    employee_ids: Optional[List[str]] = None
+
+
+@router.put("/{project_id}")
+async def update_project(
+    project_id: str,
+    project_update: ProjectUpdate = Body(...),
+    current_user: User = Depends(get_current_user),
+):
+    db = get_database()
+    query = {"_id": project_id}
+    if ObjectId.is_valid(project_id):
+        query = {"$or": [{"_id": project_id}, {"_id": ObjectId(project_id)}]}
+
+    project = await db["projects"].find_one(query)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if str(project.get("organization_id")) != str(current_user.current_org_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    is_admin = current_user.role in ("admin", "hr")
+    is_assigned_manager = current_user.role == "manager" and str(project.get("manager_id")) == str(current_user.id)
+    if not (is_admin or is_assigned_manager):
+        raise HTTPException(status_code=403, detail="Only organization admins or the assigned project manager can update project settings")
+
+    update_data = project_update.dict(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No project settings were provided")
+
+    for field in ("name", "repo_owner", "repo_name"):
+        if field in update_data:
+            if not isinstance(update_data[field], str) or not update_data[field].strip():
+                raise HTTPException(status_code=422, detail=f"{field.replace('_', ' ').title()} cannot be empty")
+            update_data[field] = update_data[field].strip()
+
+    if "name" in update_data:
+        update_data["slug"] = update_data["name"].lower().replace(" ", "-")
+
+    manager_id = update_data.get("manager_id")
+    if manager_id is not None:
+        manager_id = str(manager_id)
+        if current_user.role == "manager" and manager_id != str(current_user.id):
+            raise HTTPException(status_code=403, detail="Managers can only assign projects to themselves")
+        manager = await db["users"].find_one({"_id": manager_id})
+        if not manager and ObjectId.is_valid(manager_id):
+            manager = await db["users"].find_one({"_id": ObjectId(manager_id)})
+        if not manager or str(manager.get("current_org_id")) != str(current_user.current_org_id):
+            raise HTTPException(status_code=400, detail="The selected manager must belong to your organization")
+        if manager.get("role") not in ("admin", "manager", "hr"):
+            raise HTTPException(status_code=400, detail="The selected project manager must have a manager role")
+        update_data["manager_id"] = manager_id
+
+    if "employee_ids" in update_data:
+        employee_ids = list(dict.fromkeys(str(member_id) for member_id in (update_data["employee_ids"] or [])))
+        for employee_id in employee_ids:
+            employee = await db["users"].find_one({"_id": employee_id})
+            if not employee and ObjectId.is_valid(employee_id):
+                employee = await db["users"].find_one({"_id": ObjectId(employee_id)})
+            if not employee or str(employee.get("current_org_id")) != str(current_user.current_org_id):
+                raise HTTPException(status_code=400, detail="All assigned employees must belong to your organization")
+            if employee.get("role") != "employee":
+                raise HTTPException(status_code=400, detail="Only employees can be assigned as project developers")
+        update_data["employee_ids"] = employee_ids
+
+    await db["projects"].update_one({"_id": project["_id"]}, {"$set": update_data})
+    return {"status": "success", "message": "Project settings updated", "project_id": str(project["_id"])}
+
 # 3. DELETE PROJECT
 @router.delete("/{project_id}")
 async def delete_project(

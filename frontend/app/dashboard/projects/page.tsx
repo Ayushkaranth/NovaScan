@@ -20,7 +20,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import api from "@/lib/api";
+import api, { getUserFromToken } from "@/lib/api";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
@@ -29,8 +29,11 @@ export default function ProjectsPage() {
     const [projects, setProjects] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
+    const [canCreateProject, setCanCreateProject] = useState(false);
 
     useEffect(() => {
+        const user = getUserFromToken();
+        setCanCreateProject(["admin", "manager", "hr"].includes(user?.role));
         fetchProjects();
     }, []);
 
@@ -71,7 +74,13 @@ export default function ProjectsPage() {
                         Overview of all active engineering projects and their integration status.
                     </p>
                 </div>
-                {/* New Project button removed as per user request */}
+                {canCreateProject && (
+                    <Button asChild className="bg-primary text-primary-foreground hover:bg-primary/90">
+                        <Link href="/projects/new" className="inline-flex items-center gap-2">
+                            <Plus className="h-4 w-4" /> New Project
+                        </Link>
+                    </Button>
+                )}
             </div>
 
             {/* Filters */}
