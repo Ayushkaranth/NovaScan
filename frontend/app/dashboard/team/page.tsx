@@ -233,11 +233,11 @@ export default function TeamPage() {
     }
 
     try {
-      // Backend expects: { email, name, role }
       await api.post("/organizations/members", {
         email: addMemberForm.email,
         name: addMemberForm.name,
-        role: addMemberForm.role.toLowerCase() // Backend expects lowercase
+        role: addMemberForm.role.toLowerCase(),
+        project_id: addMemberForm.project || undefined
       });
       
       toast({
@@ -302,12 +302,17 @@ export default function TeamPage() {
 
   const canDelete = () => {
     const role = currentUserRole.toLowerCase();
-    return role === "admin" || role === "hr";
+    return role === "admin" || role === "hr" || role === "manager";
+  };
+
+  const canDeleteMember = (member: any) => {
+    const role = currentUserRole.toLowerCase();
+    return role === "admin" || role === "hr" || (role === "manager" && (member.role || "").toLowerCase() === "employee");
   };
 
   const canViewOnly = () => {
     const role = currentUserRole.toLowerCase();
-    return role === "manager" || role === "employee" || role === "viewer";
+    return role === "employee" || role === "member" || role === "viewer";
   };
 
   // Helper to colorize badges based on roles - now returns colored div styling
@@ -583,7 +588,7 @@ export default function TeamPage() {
                         )}
 
                         {/* Remove Member - Only for Admin and HR */}
-                        {canDelete() && (
+                        {canDelete() && canDeleteMember(member) && (
                           <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem 
@@ -793,7 +798,7 @@ export default function TeamPage() {
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
                 <SelectContent>
-                  {allRoles.map((role) => (
+                  {allRoles.filter((role) => currentUserRole.toLowerCase() !== "hr" || role !== "Admin").map((role) => (
                     <SelectItem key={role} value={role}>
                       {role}
                     </SelectItem>
@@ -814,7 +819,7 @@ export default function TeamPage() {
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
                   {projects.map((project) => (
-                    <SelectItem key={project._id} value={project.name}>
+                    <SelectItem key={project._id} value={project._id}>
                       {project.name}
                     </SelectItem>
                   ))}

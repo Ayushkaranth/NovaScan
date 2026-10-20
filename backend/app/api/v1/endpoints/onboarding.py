@@ -143,6 +143,8 @@ async def master_onboard(
         raise HTTPException(status_code=400, detail="The selected project manager must have a manager role")
 
     employee_ids = [str(member_id) for member_id in payload.get("employee_ids", [])]
+    if hr_user.role == "manager" and employee_ids:
+        raise HTTPException(status_code=403, detail="Managers can remove project members after creation, but cannot add them")
     for employee_id in employee_ids:
         employee = await db["users"].find_one({"_id": employee_id})
         if not employee and ObjectId.is_valid(employee_id):

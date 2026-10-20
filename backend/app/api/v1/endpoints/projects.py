@@ -114,6 +114,13 @@ async def update_project(
     update_data = project_update.dict(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=400, detail="No project settings were provided")
+    if is_assigned_manager:
+        if set(update_data) != {"employee_ids"}:
+            raise HTTPException(status_code=403, detail="Project managers can only remove project team members")
+        current_ids = {str(member_id) for member_id in (project.get("employee_ids") or [])}
+        requested_ids = {str(member_id) for member_id in (update_data.get("employee_ids") or [])}
+        if not requested_ids.issubset(current_ids):
+            raise HTTPException(status_code=403, detail="Project managers cannot add team members")
 
     for field in ("name", "repo_owner", "repo_name"):
         if field in update_data:
@@ -146,8 +153,6 @@ async def update_project(
                 employee = await db["users"].find_one({"_id": ObjectId(employee_id)})
             if not employee or str(employee.get("current_org_id")) != str(current_user.current_org_id):
                 raise HTTPException(status_code=400, detail="All assigned employees must belong to your organization")
-            if employee.get("role") != "employee":
-                raise HTTPException(status_code=400, detail="Only employees can be assigned as project developers")
         update_data["employee_ids"] = employee_ids
 
     await db["projects"].update_one({"_id": project["_id"]}, {"$set": update_data})

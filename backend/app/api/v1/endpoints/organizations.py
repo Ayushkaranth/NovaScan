@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from typing import List, Dict, Optional
 from pydantic import EmailStr, BaseModel
 from datetime import datetime
 from bson import ObjectId
+import re
 
 # Models
 from app.models.organization import Organization, OrganizationCreate, OrganizationUpdate
@@ -19,6 +20,7 @@ class MemberAddRequest(BaseModel):
     email: EmailStr
     name: str
     role: str = "employee"
+    project_id: Optional[str] = None
 
 class JoinOrgRequest(BaseModel):
     token: str 
@@ -62,43 +64,70 @@ async def add_member_to_org(
     payload: MemberAddRequest,
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Only Admins can add members")
+    if current_user.role not in ("admin", "hr"):
+        raise HTTPException(status_code=403, detail="Only admins and HR can add organization members")
+    role = payload.role.strip().lower()
+    if role not in ("admin", "manager", "hr", "employee"):
+        raise HTTPException(status_code=422, detail="Role must be admin, manager, HR, or employee")
+    if current_user.role == "hr" and role == "admin":
+        raise HTTPException(status_code=403, detail="HR cannot grant admin access")
     
     db = get_database()
     org_id = current_user.current_org_id
+
+    project = None
+    if payload.project_id:
+        project_query = {"_id": payload.project_id}
+        if ObjectId.is_valid(payload.project_id):
+            project_query = {"$or": [{"_id": payload.project_id}, {"_id": ObjectId(payload.project_id)}]}
+        project = await db["projects"].find_one(project_query)
+        if not project or str(project.get("organization_id")) != str(org_id):
+            raise HTTPException(status_code=404, detail="Project not found in your organization")
     
     # Find or Create User
     existing_user = await db["users"].find_one({"email": payload.email})
     
     if existing_user:
+        if existing_user.get("current_org_id") and str(existing_user.get("current_org_id")) != str(org_id):
+            raise HTTPException(status_code=409, detail="This account already belongs to another organization")
         user_id = existing_user["_id"]
         await db["users"].update_one(
             {"_id": user_id},
-            {"$set": {"current_org_id": org_id, "role": payload.role}}
+            {"$set": {"current_org_id": org_id, "role": role, "full_name": payload.name.strip()},
+             "$unset": {"name": ""}}
         )
     else:
         user_id = str(ObjectId())
         new_user = {
             "_id": user_id,
             "email": payload.email,
-            "name": payload.name,
-            "role": payload.role,
+            "full_name": payload.name.strip(),
+            "role": role,
             "current_org_id": org_id,
             "created_at": datetime.utcnow()
         }
         await db["users"].insert_one(new_user)
     
     # Add to specific Org List
-    list_map = {"admin": "admin_ids", "manager": "manager_ids", "employee": "employee_ids"}
-    target_list = list_map.get(payload.role, "employee_ids")
+    list_map = {"admin": "admin_ids", "manager": "manager_ids", "hr": "employee_ids", "employee": "employee_ids"}
+    target_list = list_map[role]
     
+    membership_id_values = [user_id, str(user_id)]
+    await db["organizations"].update_one(
+        {"_id": org_id},
+        {"$pull": {"admin_ids": {"$in": membership_id_values}, "manager_ids": {"$in": membership_id_values}, "employee_ids": {"$in": membership_id_values}}}
+    )
     await db["organizations"].update_one(
         {"_id": org_id},
         {"$addToSet": {target_list: user_id}}
     )
+    if project is not None:
+        await db["projects"].update_one(
+            {"_id": project["_id"]},
+            {"$addToSet": {"employee_ids": str(user_id)}}
+        )
     
-    return {"status": "success", "message": f"User added as {payload.role}"}
+    return {"status": "success", "message": f"User added as {role}", "user_id": str(user_id)}
 
 # 3. REMOVE MEMBERS
 @router.delete("/members/{user_id}")
@@ -106,30 +135,38 @@ async def remove_member_from_org(
     user_id: str,
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Only Admins can remove members")
+    if current_user.role not in ("admin", "hr", "manager"):
+        raise HTTPException(status_code=403, detail="You do not have permission to remove organization members")
     
     db = get_database()
     org_id = current_user.current_org_id
+
+    id_query = {"$or": [{"_id": user_id}]}
+    if ObjectId.is_valid(user_id):
+        id_query["$or"].append({"_id": ObjectId(user_id)})
+    target_user = await db["users"].find_one(id_query)
+    if not target_user or str(target_user.get("current_org_id")) != str(org_id):
+        raise HTTPException(status_code=404, detail="Organization member not found")
+    if current_user.role == "manager" and target_user.get("role") != "employee":
+        raise HTTPException(status_code=403, detail="Managers can remove employee members only")
+
+    target_id = target_user["_id"]
+    id_values = [target_id, str(target_id)]
     
     await db["organizations"].update_one(
         {"_id": org_id},
-        {"$pull": {
-            "admin_ids": user_id,
-            "manager_ids": user_id,
-            "employee_ids": user_id
-        }}
+        {"$pull": {"admin_ids": {"$in": id_values}, "manager_ids": {"$in": id_values}, "employee_ids": {"$in": id_values}}}
     )
     
     await db["users"].update_one(
-        {"_id": user_id},
+        {"_id": target_id},
         {"$unset": {"current_org_id": ""}, "$set": {"role": "user"}}
     )
     
     # Cleanup from projects
     await db["projects"].update_many(
         {"organization_id": org_id},
-        {"$pull": {"employee_ids": user_id}}
+        {"$pull": {"employee_ids": {"$in": id_values}}}
     )
     
     return {"status": "success", "message": "Member removed"}
@@ -267,7 +304,12 @@ async def join_organization(
 
 # 7. MEMBER LIST
 @router.get("/members/list")
-async def get_organization_members(current_user: User = Depends(get_current_user)):
+async def get_organization_members(
+    search: Optional[str] = Query(default=None, min_length=1, max_length=100),
+    member_ids: Optional[str] = Query(default=None, max_length=20000),
+    limit: int = Query(default=1000, ge=1, le=2000),
+    current_user: User = Depends(get_current_user),
+):
     db = get_database()
     
     if not current_user.current_org_id:
@@ -296,12 +338,38 @@ async def get_organization_members(current_user: User = Depends(get_current_user
             if ObjectId.is_valid(key):
                 raw_member_ids.append(ObjectId(key))
 
-    unique_ids = list({str(value): value for value in raw_member_ids}.values())
-    users = await db["users"].find(
-        {"_id": {"$in": unique_ids}},
+    # MongoDB distinguishes a string ID from an ObjectId with the same text.
+    # Keep both forms in the query; deduplicating by str(value) silently
+    # discarded the string form used by existing NovaScan user documents.
+    unique_ids = []
+    seen_typed_ids = set()
+    for value in raw_member_ids:
+        typed_key = (type(value).__name__, str(value))
+        if typed_key not in seen_typed_ids:
+            seen_typed_ids.add(typed_key)
+            unique_ids.append(value)
+    if member_ids:
+        requested_ids = {value.strip() for value in member_ids.split(",") if value.strip()}
+        unique_ids = [value for value in unique_ids if str(value) in requested_ids]
+    user_query = {"_id": {"$in": unique_ids}}
+    if search and search.strip():
+        pattern = re.escape(search.strip())
+        user_query["$or"] = [
+            {"full_name": {"$regex": pattern, "$options": "i"}},
+            {"name": {"$regex": pattern, "$options": "i"}},
+            {"email": {"$regex": pattern, "$options": "i"}},
+            {"role": {"$regex": pattern, "$options": "i"}},
+        ]
+    result_limit = min(limit, 50) if search else limit
+    user_cursor = db["users"].find(
+        user_query,
         {"_id": 1, "name": 1, "full_name": 1, "email": 1, "role": 1,
          "profile_image": 1, "picture": 1, "avatar": 1, "current_org_id": 1}
-    ).to_list(length=1000)
+    ).sort([("full_name", 1), ("email", 1)]).limit(result_limit + (1 if search else 0))
+    users = await user_cursor.to_list(length=result_limit + (1 if search else 0))
+    has_more = bool(search and len(users) > result_limit)
+    if has_more:
+        users = users[:result_limit]
 
     organization_id = str(org["_id"])
     project_org_ids = [organization_id]
@@ -335,7 +403,7 @@ async def get_organization_members(current_user: User = Depends(get_current_user
             "employee_id": f"#{user_id[-6:].upper()}" if len(user_id) >= 6 else f"#{user_id.upper()}",
             "name": user.get("full_name") or user.get("name") or "",
             "email": user.get("email") or "",
-            "role": role_by_id.get(user_id, user.get("role") or "employee"),
+            "role": user.get("role") if user.get("role") in ("admin", "manager", "hr", "employee") else role_by_id.get(user_id, "employee"),
             "profile_image": user.get("profile_image") or user.get("picture") or user.get("avatar"),
             "organization_name": org_name,
             "projects": assignments,
@@ -343,4 +411,4 @@ async def get_organization_members(current_user: User = Depends(get_current_user
         }
         members.append(member)
 
-    return {"members": members, "organization_name": org_name}
+    return {"members": members, "organization_name": org_name, "has_more": has_more}

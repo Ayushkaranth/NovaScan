@@ -22,6 +22,7 @@ const providers: { id: OAuthProvider; name: string; icon: typeof Github }[] = [
 export default function MasterOnboarding() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [userRole, setUserRole] = useState<string>('');
   const [members, setMembers] = useState<any[]>([]); // All Org Members
   const [oauthStatus, setOauthStatus] = useState<OAuthStatus>({});
   const [activeProvider, setActiveProvider] = useState<OAuthProvider | null>(null);
@@ -44,6 +45,7 @@ export default function MasterOnboarding() {
 
   // 1. Fetch Members on Load
   useEffect(() => {
+    api.get('/auth/me/profile').then(({ data }) => setUserRole(String(data.role || '').toLowerCase())).catch(() => setUserRole(''));
     const fetchMembers = async () => {
       try {
         const res = await api.get('/organizations/members/list');
@@ -96,10 +98,10 @@ export default function MasterOnboarding() {
 
   // --- 🔴 FIXED FILTERING LOGIC ---
   // Managers List: Includes 'manager' AND 'admin' (HR)
-  const managersList = members.filter(m => m.role === 'manager' || m.role === 'admin');
+  const managersList = members.filter(m => ['manager', 'admin', 'hr'].includes(String(m.role || '').toLowerCase()));
 
   // Employees List: Strictly includes ONLY 'employee' role
-  const employeesList = members.filter(m => m.role === 'employee');
+  const employeesList = ['admin', 'hr'].includes(userRole) ? members : [];
   // --------------------------------
 
   // Handle Text Inputs
@@ -271,11 +273,11 @@ export default function MasterOnboarding() {
               {/* Employee Selection (Checkbox) */}
               <div>
                 <label className="block text-sm font-bold text-foreground mb-3 bg-emerald-500/10 p-2 rounded border border-emerald-500/20 inline-block text-emerald-700 dark:text-emerald-400">
-                  Select Employees (Developers)
+                  Assign Project Members
                 </label>
 
                 {employeesList.length === 0 ? (
-                  <p className="text-sm text-muted-foreground italic">No employees found.</p>
+                  <p className="text-sm text-muted-foreground italic">{userRole === 'manager' ? 'Project managers cannot add members while creating a project. An admin or HR can assign the project team.' : 'No organization members are available yet.'}</p>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {employeesList.map((user) => (
