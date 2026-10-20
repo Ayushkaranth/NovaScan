@@ -3,13 +3,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
-import { ArrowLeft, Github, Slack, Trello, Check, User as UserIcon, Shield, ExternalLink, CheckCircle2, Loader2 } from 'lucide-react';
+import { ArrowLeft, Github, Slack, Trello, Check, User as UserIcon, Shield, ExternalLink, Loader2 } from 'lucide-react';
 
 type OAuthProvider = 'github' | 'slack' | 'jira';
 type OAuthStatus = {
   configured?: Partial<Record<OAuthProvider, boolean>>;
-  connections?: Partial<Record<OAuthProvider, { status?: string; workspace_name?: string }>>;
+  connections?: Partial<Record<OAuthProvider, { status?: string; live?: boolean; workspace_name?: string }>>;
 };
+
+const onboardingStorageKey = 'novascan:new-project-onboarding';
 
 const providers: { id: OAuthProvider; name: string; icon: typeof Github }[] = [
   { id: 'github', name: 'GitHub', icon: Github },
@@ -24,7 +26,7 @@ export default function MasterOnboarding() {
   const [oauthStatus, setOauthStatus] = useState<OAuthStatus>({});
   const [activeProvider, setActiveProvider] = useState<OAuthProvider | null>(null);
   const [integrationError, setIntegrationError] = useState('');
-  const [integrationNotice, setIntegrationNotice] = useState('');
+  const [oauthNotice, setOauthNotice] = useState('');
   const [createdProjectId, setCreatedProjectId] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const createProjectPromise = useRef<Promise<string> | null>(null);
@@ -51,9 +53,45 @@ export default function MasterOnboarding() {
       }
     };
     fetchMembers();
-    api.get('/oauth/status', { params: { live: false } })
-      .then(({ data }) => setOauthStatus(data))
+    api.get('/oauth/configuration')
+      .then(({ data }) => setOauthStatus((current) => ({ ...current, ...data })))
       .catch((err) => console.error('Failed to fetch OAuth setup status', err));
+  }, []);
+
+  // OAuth leaves this page temporarily, then the provider callback sends the
+  // browser back here. Restore the same project's form from this tab's session.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const projectId = params.get('project_id');
+    const status = params.get('status');
+    const provider = params.get('provider');
+    const message = params.get('message');
+    if (!projectId) return;
+
+    setCreatedProjectId(projectId);
+    try {
+      const saved = sessionStorage.getItem(onboardingStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.projectId === projectId && parsed.formData) {
+          setFormData((current) => ({ ...current, ...parsed.formData }));
+        }
+      }
+    } catch (error) {
+      console.warn('Could not restore the project form after OAuth', error);
+    }
+
+    if (status && provider) {
+      const providerName = providers.find((item) => item.id === provider)?.name || provider;
+      setOauthNotice(status === 'success'
+        ? `${providerName} connected${message ? `: ${message}` : ''}. Your project details are still here.`
+        : `${providerName} connection failed${message ? `: ${message}` : '.'}`);
+      window.history.replaceState({}, '', `/projects/new?project_id=${encodeURIComponent(projectId)}`);
+    }
+
+    api.get('/oauth/status', { params: { project_id: projectId, live: true } })
+      .then(({ data }) => setOauthStatus((current) => ({ ...current, ...data })))
+      .catch((error) => console.error('Failed to refresh project OAuth status', error));
   }, []);
 
   // --- 🔴 FIXED FILTERING LOGIC ---
@@ -108,11 +146,15 @@ export default function MasterOnboarding() {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIntegrationError('');
-    setIntegrationNotice('');
     setLoading(true);
     try {
       const projectId = await ensureProjectCreated();
-      router.push(`/dashboard/integrations?project_id=${encodeURIComponent(projectId)}`);
+      try {
+        sessionStorage.removeItem(onboardingStorageKey);
+      } catch (storageError) {
+        console.warn('Could not clear the restored project form', storageError);
+      }
+      router.push(`/projects/${encodeURIComponent(projectId)}`);
     } catch (err: any) {
       setIntegrationError(err.response?.data?.detail || err.message || 'Project creation failed');
     } finally {
@@ -122,26 +164,24 @@ export default function MasterOnboarding() {
 
   const handleProviderConnect = async (provider: OAuthProvider) => {
     setIntegrationError('');
-    setIntegrationNotice('');
     setActiveProvider(provider);
     try {
       // Check server configuration first so a missing OAuth client does not
       // create a project that the user cannot connect yet.
-      const { data: currentStatus } = await api.get('/oauth/status', { params: { live: false } });
+      const { data: currentStatus } = await api.get('/oauth/configuration');
       setOauthStatus(currentStatus);
       const providerName = providers.find((item) => item.id === provider)?.name || provider;
 
       if (!currentStatus.configured?.[provider]) {
         throw new Error(`${providerName} OAuth is not configured on the NovaScan server yet.`);
       }
-      if (currentStatus.connections?.[provider]?.status === 'connected') {
-        setIntegrationNotice(`${providerName} is already connected to your organization. It will be linked to this project when you create it.`);
-        setActiveProvider(null);
-        return;
-      }
-
       const projectId = await ensureProjectCreated();
-      const { data } = await api.get(`/oauth/${provider}/authorize`, { params: { project_id: projectId } });
+      try {
+        sessionStorage.setItem(onboardingStorageKey, JSON.stringify({ projectId, formData }));
+      } catch (storageError) {
+        console.warn('Could not persist the project form for the OAuth return', storageError);
+      }
+      const { data } = await api.get(`/oauth/${provider}/authorize`, { params: { project_id: projectId, return_to: 'new' } });
       if (!data.auth_url) throw new Error('The server did not return an authorization URL.');
       window.location.assign(data.auth_url);
     } catch (err: any) {
@@ -160,7 +200,7 @@ export default function MasterOnboarding() {
         <form ref={formRef} onSubmit={handleSubmit} className="bg-card rounded-2xl shadow-xl overflow-hidden border border-border">
           <div className="bg-primary px-8 py-6">
             <h1 className="text-2xl font-bold text-primary-foreground">🚀 New Project Onboarding</h1>
-            <p className="text-primary-foreground/80 mt-2">Configure repo, assign team, and link integrations.</p>
+            <p className="text-primary-foreground/80 mt-2">Configure this project, assign its team, and connect its tools.</p>
           </div>
 
           <div className="p-8 space-y-10">
@@ -174,16 +214,16 @@ export default function MasterOnboarding() {
               <div className="grid grid-cols-1 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-muted-foreground mb-1">Project Name</label>
-                  <input name="name" required onChange={handleChange} className="mt-1 block w-full bg-background border border-input text-foreground rounded-md p-2 focus:ring-primary focus:border-primary" placeholder="e.g. AI Mobile App" />
+      <input name="name" required value={formData.name} onChange={handleChange} className="mt-1 block w-full bg-background border border-input text-foreground rounded-md p-2 focus:ring-primary focus:border-primary" placeholder="e.g. AI Mobile App" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-muted-foreground mb-1">Repo Owner</label>
-                    <input name="repo_owner" required onChange={handleChange} className="mt-1 block w-full bg-background border border-input text-foreground rounded-md p-2" placeholder="github-username" />
+                    <input name="repo_owner" required value={formData.repo_owner} onChange={handleChange} className="mt-1 block w-full bg-background border border-input text-foreground rounded-md p-2" placeholder="github-username" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-muted-foreground mb-1">Repo Name</label>
-                    <input name="repo_name" required onChange={handleChange} className="mt-1 block w-full bg-background border border-input text-foreground rounded-md p-2" placeholder="repo-name" />
+                    <input name="repo_name" required value={formData.repo_name} onChange={handleChange} className="mt-1 block w-full bg-background border border-input text-foreground rounded-md p-2" placeholder="repo-name" />
                   </div>
                 </div>
                 <p className="text-sm text-muted-foreground">Connect GitHub with OAuth after creating the project. No personal access token is stored in the project form.</p>
@@ -268,31 +308,32 @@ export default function MasterOnboarding() {
               </h3>
 
               <div className="rounded-lg border border-border bg-muted/30 p-5 space-y-4">
-                <p className="text-sm text-muted-foreground">Click a tool to authorize it for this project. NovaScan creates the project first so OAuth is linked to the right project. Existing organization connections are linked automatically when you create the project.</p>
+                <p className="text-sm text-muted-foreground">Each project has its own connections. Click a tool to create the project and authorize it specifically for this project.</p>
+                {oauthNotice && <p role="status" className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm text-primary">{oauthNotice}</p>}
                 <div className="grid gap-3 sm:grid-cols-3">
                   {providers.map(({ id, name, icon: Icon }) => {
-                    const connected = oauthStatus.connections?.[id]?.status === 'connected';
                     const unavailable = oauthStatus.configured?.[id] === false;
                     const busy = activeProvider === id;
+                    const connection = oauthStatus.connections?.[id];
+                    const connected = connection?.live === true;
                     return (
                       <button
                         key={id}
                         type="button"
                         onClick={() => handleProviderConnect(id)}
                         disabled={activeProvider !== null || loading}
-                        className={`flex min-h-14 items-center gap-2 rounded-md border p-3 text-left text-sm font-semibold transition-colors disabled:cursor-wait disabled:opacity-60 ${connected ? 'border-emerald-500/40 bg-emerald-500/5 hover:bg-emerald-500/10' : 'border-border bg-background hover:border-primary/50 hover:bg-muted/50'}`}
-                        aria-label={connected ? `${name} connected to organization` : `Connect ${name} to project`}
+                        className="flex min-h-14 items-center gap-2 rounded-md border border-border bg-background p-3 text-left text-sm font-semibold transition-colors hover:border-primary/50 hover:bg-muted/50 disabled:cursor-wait disabled:opacity-60"
+                        aria-label={`Connect ${name} to this project`}
                       >
-                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : connected ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <Icon className="h-4 w-4" />}
-                        <span>{busy ? 'Starting…' : connected ? `${name} connected` : unavailable ? `${name} setup required` : `Connect ${name}`}</span>
+                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />}
+                        <span>{busy ? 'Starting…' : connected ? `Connected · ${connection?.workspace_name || name} (reconnect)` : unavailable ? `${name} setup required` : `Connect ${name}`}</span>
                       </button>
                     );
                   })}
                 </div>
                 {integrationError && <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{integrationError}</p>}
-                {integrationNotice && <p role="status" className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-700 dark:text-emerald-300">{integrationNotice}</p>}
-                {createdProjectId && <button type="button" onClick={() => router.push(`/dashboard/integrations?project_id=${encodeURIComponent(createdProjectId)}`)} className="flex items-center gap-1 text-sm font-medium text-primary hover:underline"><ExternalLink className="h-3.5 w-3.5" />Continue to this project’s integrations</button>}
-                <p className="flex items-center gap-1 text-xs text-muted-foreground"><ExternalLink className="h-3.5 w-3.5" />After approving one tool, you’ll return to NovaScan. Connect remaining tools from this project’s Integrations page.</p>
+                {createdProjectId && <button type="button" onClick={() => router.push(`/projects/${encodeURIComponent(createdProjectId)}`)} className="flex items-center gap-1 text-sm font-medium text-primary hover:underline"><ExternalLink className="h-3.5 w-3.5" />Continue to this project</button>}
+                <p className="flex items-center gap-1 text-xs text-muted-foreground"><ExternalLink className="h-3.5 w-3.5" />After approving a tool, you’ll return here with your project details preserved so you can connect another tool or launch the project.</p>
               </div>
             </section>
 

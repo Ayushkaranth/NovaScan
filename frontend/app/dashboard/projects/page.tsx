@@ -148,11 +148,10 @@ export default function ProjectsPage() {
                             </div>
 
                             <div className="flex gap-2 flex-wrap">
-                                {(project.integrations || ['github', 'slack']).map((integ: string) => (
-                                    <Badge key={integ} variant="secondary" className="text-[10px] uppercase tracking-wider px-2 py-0.5 border-border bg-background">
-                                        {integ}
-                                    </Badge>
-                                ))}
+                                {project.settings?.github_login && <Badge variant="secondary" className="text-[10px] uppercase tracking-wider px-2 py-0.5 border-border bg-background">GitHub</Badge>}
+                                {project.settings?.slack_team_id && <Badge variant="secondary" className="text-[10px] uppercase tracking-wider px-2 py-0.5 border-border bg-background">Slack</Badge>}
+                                {project.settings?.jira_cloud_id && <Badge variant="secondary" className="text-[10px] uppercase tracking-wider px-2 py-0.5 border-border bg-background">Jira</Badge>}
+                                {!project.settings?.github_login && !project.settings?.slack_team_id && !project.settings?.jira_cloud_id && <span className="text-xs text-muted-foreground">Tools connect per project</span>}
                             </div>
                         </div>
 

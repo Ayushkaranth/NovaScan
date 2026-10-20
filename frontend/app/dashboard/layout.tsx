@@ -89,12 +89,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             label="Google Meet MOMs"
             active={pathname.includes("/dashboard/gmeet")}
           />
-          <NavItem
-            href="/dashboard/integrations"
-            icon={<LayoutGrid className="w-4 h-4 text-blue-500" />}
-            label="Integrations Hub"
-            active={pathname.includes("/dashboard/integrations")}
-          />
         </div>
 
         {/* Bottom Section */}

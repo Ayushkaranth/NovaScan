@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import api from '@/lib/api';
 import {
@@ -13,16 +13,39 @@ import {
   AlertTriangle,
   Clock,
   Github,
-  Activity
+  Activity,
+  Slack,
+  Trello,
+  CheckCircle2,
+  Loader2,
+  PlugZap,
+  Unplug
 } from 'lucide-react';
+
+type OAuthProvider = 'github' | 'slack' | 'jira';
+type ProjectIntegrationStatus = {
+  configured?: Partial<Record<OAuthProvider, boolean>>;
+  connections?: Partial<Record<OAuthProvider, { status?: string; workspace_name?: string; scope?: string; connected_at?: string }>>;
+};
+
+const integrationProviders: { id: OAuthProvider; name: string; icon: typeof Github }[] = [
+  { id: 'github', name: 'GitHub', icon: Github },
+  { id: 'slack', name: 'Slack', icon: Slack },
+  { id: 'jira', name: 'Jira', icon: Trello },
+];
 
 export default function ProjectDashboard() {
   const params = useParams();
-  const projectId = params.id;
+  const searchParams = useSearchParams();
+  const projectId = String(params.id || '');
 
   const [project, setProject] = useState<any>(null);
   const [scans, setScans] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [integrationStatus, setIntegrationStatus] = useState<ProjectIntegrationStatus>({});
+  const [integrationsLoading, setIntegrationsLoading] = useState(true);
+  const [activeIntegration, setActiveIntegration] = useState<OAuthProvider | null>(null);
+  const [integrationError, setIntegrationError] = useState('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -49,6 +72,50 @@ export default function ProjectDashboard() {
 
     if (projectId) fetchData();
   }, [projectId]);
+
+  const fetchIntegrationStatus = async () => {
+    if (!projectId) return;
+    setIntegrationsLoading(true);
+    try {
+      const { data } = await api.get('/oauth/status', { params: { project_id: projectId, live: true } });
+      setIntegrationStatus(data);
+      setIntegrationError('');
+    } catch (err: any) {
+      setIntegrationError(err.response?.data?.detail || 'Could not load this project’s tool connections.');
+    } finally {
+      setIntegrationsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchIntegrationStatus();
+  }, [projectId]);
+
+  const connectIntegration = async (provider: OAuthProvider) => {
+    setActiveIntegration(provider);
+    setIntegrationError('');
+    try {
+      const { data } = await api.get(`/oauth/${provider}/authorize`, { params: { project_id: projectId } });
+      if (!data.auth_url) throw new Error('The server did not return an authorization URL.');
+      window.location.assign(data.auth_url);
+    } catch (err: any) {
+      setIntegrationError(err.response?.data?.detail || err.message || `Could not connect ${provider}.`);
+      setActiveIntegration(null);
+    }
+  };
+
+  const disconnectIntegration = async (provider: OAuthProvider) => {
+    setActiveIntegration(provider);
+    setIntegrationError('');
+    try {
+      await api.delete(`/oauth/${provider}`, { params: { project_id: projectId } });
+      await fetchIntegrationStatus();
+    } catch (err: any) {
+      setIntegrationError(err.response?.data?.detail || `Could not disconnect ${provider}.`);
+    } finally {
+      setActiveIntegration(null);
+    }
+  };
 
   if (loading) return <div className="p-12 text-center text-gray-500">Loading Intelligence Feed...</div>;
   if (!project) return <div className="p-12 text-center">Project not found</div>;
@@ -84,14 +151,15 @@ export default function ProjectDashboard() {
             </a>
           </div>
 
-          <Link
-            href={`/dashboard/settings?project=${projectId}`}
-            className="px-4 py-2 bg-card border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted/50 transition-colors"
-          >
-            Configure Integrations
-          </Link>
+          <a href="#project-integrations" className="px-4 py-2 bg-card border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted/50 transition-colors">Project tools</a>
         </div>
       </div>
+
+      {(searchParams.get('status') || searchParams.get('message')) && (
+        <div className={`max-w-6xl mx-auto mb-6 rounded-lg border p-4 text-sm ${searchParams.get('status') === 'success' ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300' : 'border-destructive/30 bg-destructive/5 text-destructive'}`} role="status">
+          {searchParams.get('message') || `OAuth ${searchParams.get('status')}`}
+        </div>
+      )}
 
       {/* === STATS OVERVIEW === */}
       <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
@@ -114,6 +182,49 @@ export default function ProjectDashboard() {
           </p>
         </div>
       </div>
+
+      <section id="project-integrations" className="max-w-6xl mx-auto mb-10 scroll-mt-8">
+        <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-foreground flex items-center gap-2"><PlugZap className="h-5 w-5 text-primary" />Project tools</h2>
+            <p className="mt-1 text-sm text-muted-foreground">These connections belong only to {project.name}; other projects in your organization have separate connections.</p>
+          </div>
+          <button type="button" onClick={fetchIntegrationStatus} disabled={integrationsLoading} className="self-start rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-60 sm:self-auto">
+            {integrationsLoading ? 'Refreshing…' : 'Refresh status'}
+          </button>
+        </div>
+        {integrationError && <p role="alert" className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{integrationError}</p>}
+        <div className="grid gap-4 md:grid-cols-3">
+          {integrationProviders.map(({ id, name, icon: Icon }) => {
+            const connection = integrationStatus.connections?.[id];
+            const connected = connection?.status === 'connected';
+            const configured = integrationStatus.configured?.[id] !== false;
+            const busy = activeIntegration === id;
+            return (
+              <article key={id} className="rounded-xl border border-border bg-card p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Icon className="h-5 w-5" /></div>
+                    <div><h3 className="font-semibold">{name}</h3><p className="mt-0.5 text-xs text-muted-foreground">{integrationsLoading ? 'Checking connection…' : connected ? connection?.workspace_name || 'Connected' : connection?.status === 'expired' ? 'Reconnect required' : 'Not connected'}</p></div>
+                  </div>
+                  {connected && <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />}
+                </div>
+                <div className="mt-5 flex gap-2">
+                  {connected ? (
+                    <button type="button" onClick={() => disconnectIntegration(id)} disabled={busy} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-60">
+                      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unplug className="h-4 w-4" />} Disconnect
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => connectIntegration(id)} disabled={busy || integrationsLoading || !configured} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
+                      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}{configured ? `Connect ${name}` : 'OAuth not configured'}
+                    </button>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
 
       {/* === THE FEED === */}
       <div className="max-w-6xl mx-auto">

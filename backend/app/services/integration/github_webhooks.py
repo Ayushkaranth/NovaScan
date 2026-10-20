@@ -6,9 +6,9 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-def webhook_target_url(org_id: str) -> str:
+def webhook_target_url(org_id: str, project_id: str) -> str:
     base = (settings.BASE_URL or "http://localhost:8000").rstrip("/")
-    return f"{base}/api/v1/webhooks/github/{org_id}"
+    return f"{base}/api/v1/webhooks/github/{org_id}/{project_id}"
 
 
 async def ensure_github_webhook(
@@ -16,12 +16,13 @@ async def ensure_github_webhook(
     repo_owner: str,
     repo_name: str,
     org_id: str,
+    project_id: str,
 ) -> Dict[str, Any]:
     """Idempotently install a GitHub webhook pointing at NovaScan."""
-    if not (token and repo_owner and repo_name and org_id):
+    if not (token and repo_owner and repo_name and org_id and project_id):
         return {"status": "skipped", "reason": "missing_fields"}
 
-    target = webhook_target_url(org_id)
+    target = webhook_target_url(org_id, project_id)
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",

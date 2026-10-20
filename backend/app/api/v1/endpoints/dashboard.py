@@ -19,7 +19,7 @@ async def get_dashboard_stats(current_user: User = Depends(get_current_user)):
 
     # 1. Count Total Risks
     total_risks = await db["events"].count_documents({
-        "org_id": org_id, 
+        "org_id": org_id,
         "analysis.is_risky": True
     })
 
@@ -31,12 +31,17 @@ async def get_dashboard_stats(current_user: User = Depends(get_current_user)):
     # 3. Risk Distribution
     return {
         "total_risks": total_risks,
-        "active_integrations": await db["integrations"].count_documents({"org_id": org_id}),
+        # OAuth connections are stored against a project, so count those
+        # records for the organization instead of the obsolete shared vault.
+        "active_integrations": await db["oauth_connections"].count_documents({
+            "org_id": org_id,
+            "status": "connected",
+        }),
         "recent_activity": [
             {
                 "summary": e.get("summary", "No summary available"),
                 "risk_score": e.get("analysis", {}).get("risk_score", 0)
-            } 
+            }
             for e in recent_events
         ]
     }

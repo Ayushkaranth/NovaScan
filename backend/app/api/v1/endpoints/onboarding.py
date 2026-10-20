@@ -1,19 +1,16 @@
 from fastapi import APIRouter, HTTPException, Body, Depends
 import httpx
-import os
 from datetime import datetime
 from dotenv import load_dotenv
 from app.api.v1.endpoints.auth import get_current_user, check_role
 from app.models.user import User
 from app.core.database import get_database
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Any
 from bson import ObjectId
-from app.core.config import settings
 from app.services.integration.oauth_token_manager import oauth_token_manager
 
 load_dotenv()
 router = APIRouter()
-BASE_URL = os.getenv("BASE_URL") 
 
 # 1. CREATE PROJECT (Shell)
 @router.post("/project")
@@ -21,12 +18,6 @@ async def create_project_shell(
     name: str = Body(...),
     repo_owner: str = Body(...),
     repo_name: str = Body(...),
-    github_token: Optional[str] = Body(None),
-    jira_url: Optional[str] = Body(None),
-    jira_email: Optional[str] = Body(None),
-    jira_token: Optional[str] = Body(None),
-    slack_token: Optional[str] = Body(None),
-    slack_channel: Optional[str] = Body(None),
     current_user: User = Depends(get_current_user)
 ):
     if current_user.role not in ("admin", "manager", "hr"):
@@ -36,9 +27,6 @@ async def create_project_shell(
         raise HTTPException(status_code=400, detail="You must belong to an Organization first")
 
     db = get_database()
-
-    oauth_credentials = await oauth_token_manager.credentials_for_org(current_user.current_org_id)
-    github_token = oauth_credentials.get("github_token")
 
     # 1. SAVE TO 'PROJECTS' COLLECTION
     new_project = {
@@ -51,38 +39,11 @@ async def create_project_shell(
         "manager_id": current_user.id if current_user.role == "manager" else None,
         "employee_ids": [],
         "created_at": datetime.utcnow(),
-        "settings": {
-            "slack_channel": oauth_credentials.get("slack_channel") or slack_channel,
-            "jira_url": oauth_credentials.get("jira_url") or jira_url,
-            "jira_project_key": "SCRUM" 
-        }
+        "settings": {"jira_project_key": "SCRUM"}
     }
     
     result = await db["projects"].insert_one(new_project)
     project_id = str(result.inserted_id)
-    await oauth_token_manager.apply_to_project(current_user.current_org_id, project_id)
-
-    # 2. AUTO-INSTALL GITHUB WEBHOOK (FIXED: Uses Org ID)
-    webhook_target = f"{settings.BASE_URL.rstrip('/')}/api/v1/webhooks/github/{current_user.current_org_id}"
-    webhook_config = {
-        "name": "web",
-        "active": True,
-        "events": ["pull_request", "push"],
-        "config": {"url": webhook_target, "content_type": "json", "insecure_ssl": "0"}
-    }
-
-    if github_token:
-        headers = {"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github+json"}
-        async with httpx.AsyncClient(timeout=15) as http:
-            try:
-                await http.post(
-                    f"https://api.github.com/repos/{repo_owner.strip()}/{repo_name.strip()}/hooks",
-                    json=webhook_config,
-                    headers=headers
-                )
-            except Exception as e:
-                print(f"Webhook creation failed: {e}")
-        
     return {"status": "success", "project_id": project_id, "message": "Project created successfully"}
 
 # 2. ASSIGN TEAM
@@ -136,7 +97,7 @@ async def assign_team(
         await db["notifications"].insert_many(notif_list)
 
     project_settings = project.get("settings", {})
-    slack_credentials = await oauth_token_manager.credentials_for_org(hr_user.current_org_id)
+    slack_credentials = await oauth_token_manager.credentials_for_project(hr_user.current_org_id, project_id)
     slack_token = slack_credentials.get("slack_token") or project_settings.get("slack_bot_token")
     if slack_token and project_settings.get("slack_channel"):
         await broadcast_team_assignment(
@@ -189,9 +150,7 @@ async def master_onboard(
         if not employee or str(employee.get("current_org_id")) != str(hr_user.current_org_id):
             raise HTTPException(status_code=400, detail="All assigned employees must belong to your organization")
 
-    # 1. Prepare Project Data. OAuth credentials stay in the encrypted org vault;
-    # apply_to_project copies only the integrations already authorized for this org.
-    org_credentials = await oauth_token_manager.credentials_for_org(hr_user.current_org_id)
+    # OAuth connections are authorized after project creation and stored per project.
     project_id = str(ObjectId())
     
     new_project = {
@@ -206,9 +165,6 @@ async def master_onboard(
         "employee_ids": employee_ids,
         "created_at": datetime.utcnow(),
         "settings": {
-            "slack_channel": org_credentials.get("slack_channel"),
-            "slack_team_id": org_credentials.get("slack_team_id"),
-            "jira_url": org_credentials.get("jira_url"),
             "jira_project_key": "KAN",
             "notion_token": payload.get("notion_token"),
             "notion_database_id": payload.get("notion_database_id")
@@ -216,31 +172,6 @@ async def master_onboard(
     }
     
     await db["projects"].insert_one(new_project)
-    await oauth_token_manager.apply_to_project(hr_user.current_org_id, project_id)
-
-    # 2. Setup GitHub Webhook (FIXED: Uses Org ID)
-    # 🔴 OLD BUG: webhook_target = f"{BASE_URL}/api/v1/webhooks/github/{project_id}"
-    # 🟢 NEW FIX: Use hr_user.current_org_id
-    webhook_target = f"{settings.BASE_URL.rstrip('/')}/api/v1/webhooks/github/{hr_user.current_org_id}"
-    
-    webhook_config = {
-        "name": "web", 
-        "active": True, 
-        "events": ["pull_request", "push"],
-        "config": {"url": webhook_target, "content_type": "json", "insecure_ssl": "0"}
-    }
-    
-    github_token = org_credentials.get("github_token")
-    if github_token:
-        headers = {"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github+json"}
-        try:
-            async with httpx.AsyncClient(timeout=15) as http:
-                await http.post(
-                    f"https://api.github.com/repos/{payload['repo_owner'].strip()}/{payload['repo_name'].strip()}/hooks",
-                    json=webhook_config, headers=headers
-                )
-        except Exception as e:
-            print(f"GitHub webhook creation failed: {e}")
 
     # 3. Create Dashboard Notifications
     notif_batch = [
@@ -266,8 +197,7 @@ async def master_onboard(
     if notif_batch:
         await db["notifications"].insert_many(notif_batch)
 
-    applied = await oauth_token_manager.apply_to_project(hr_user.current_org_id, project_id)
-    return {"status": "success", "project_id": project_id, "integrations": applied.get("applied", [])}
+    return {"status": "success", "project_id": project_id, "integrations": []}
 
 # --- Helper ---
 async def broadcast_team_assignment(token: str, channel: str, project_name: str, manager_id: str, employee_ids: list):

@@ -95,10 +95,19 @@ async def delete_project(
     if ObjectId.is_valid(project_id):
         query = {"_id": ObjectId(project_id)}
 
-    result = await db["projects"].delete_one(query)
+    project = await db["projects"].find_one(query)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if str(project.get("organization_id")) != str(current_user.current_org_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    result = await db["projects"].delete_one({"_id": project["_id"]})
 
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    from app.services.integration.oauth_token_manager import oauth_token_manager
+    await oauth_token_manager.delete_project_connections(current_user.current_org_id, project_id)
 
     return {"status": "success", "message": "Project deleted"}
 

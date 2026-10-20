@@ -120,7 +120,7 @@ export default function PrivacyPage() {
             </PolicySection>
 
             <PolicySection id="integrations" title="Connected services">
-              <p>An organization administrator or other authorized user starts an OAuth connection and approves the requested permissions with the provider. NovaScan stores the resulting tokens for the organization so its enabled project features can use the connection.</p>
+              <p>An organization administrator or other authorized user starts an OAuth connection from a project and approves the requested permissions with the provider. NovaScan stores the resulting tokens for that project only. Each project must be authorized separately; connecting a tool to one project does not connect it to other projects in the organization.</p>
               <p>GitHub, Slack, Atlassian, and any AI provider process data under their own terms and privacy practices. Disconnecting an integration in NovaScan stops future use of that connection by NovaScan; it does not necessarily revoke access at the provider unless the provider revocation flow is also completed.</p>
             </PolicySection>
 
@@ -143,7 +143,7 @@ export default function PrivacyPage() {
 
             <PolicySection id="choices" title="Your choices">
               <ul className="list-disc space-y-2 pl-5">
-                <li>Organization administrators choose which integrations to connect and can disconnect them in NovaScan.</li>
+                <li>Authorized project admins and managers choose which services to connect for each project and can disconnect them from that project’s dashboard.</li>
                 <li>Users should provide only project information their organization has authorized for use.</li>
                 <li>You can ask your organization administrator to correct or remove information associated with your account or projects.</li>
                 <li>Provider-side permissions and access can also be reviewed or revoked from GitHub, Slack, or Atlassian account settings.</li>

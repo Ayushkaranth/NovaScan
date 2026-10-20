@@ -3,6 +3,8 @@ import json
 import os
 import logging
 import httpx
+import re
+from typing import Optional
 from datetime import datetime
 from dotenv import load_dotenv
 from bson import ObjectId
@@ -25,62 +27,44 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # --- HELPER: GET CREDENTIALS (PROJECT-AWARE) ---
-async def get_org_credentials(org_id: str, repo_full_name: str = None):
-    """
-    Fetches integration secrets.
-    1. Tries to find the specific PROJECT by matching the Repo Name.
-    2. Falls back to the ORGANIZATION settings if no project is found.
-    """
+async def get_org_credentials(org_id: str, repo_full_name: str = None, project_id: str = None):
+    """Fetch integration secrets from the matching project only; never org-wide."""
     try:
         db = get_database()
-        
-        # 1. Try to find the specific PROJECT for this Repo & Org
-        if repo_full_name:
-            # Convert "Owner/Repo" -> "Repo" (e.g., "Ayushkaranth/NovaScan" -> "NovaScan")
-            clean_repo_name = repo_full_name.split('/')[-1]
-            
+        project = None
+        if project_id:
+            query = {"_id": project_id, "organization_id": org_id}
+            if ObjectId.is_valid(project_id):
+                query = {"_id": ObjectId(project_id), "organization_id": org_id}
+            project = await db["projects"].find_one(query)
+        elif repo_full_name:
+            owner, _, repo_name = repo_full_name.partition("/")
             project = await db["projects"].find_one({
                 "organization_id": org_id,
-                # Case-insensitive match to be safe
-                "repo_name": {"$regex": f"^{clean_repo_name}$", "$options": "i"}
+                "repo_owner": {"$regex": f"^{re.escape(owner)}$", "$options": "i"},
+                "repo_name": {"$regex": f"^{re.escape(repo_name)}$", "$options": "i"},
             })
-            
-            if project and project.get("settings"):
-                settings_data = project.get("settings")
-                oauth_credentials = await oauth_token_manager.credentials_for_org(org_id)
-                logger.info(f"✅ Loaded credentials from Project: {project.get('name')}")
-                return {
-                    "github_token": oauth_credentials.get("github_token") or settings_data.get("github_access_token"),
-                    "slack_token": oauth_credentials.get("slack_token") or settings_data.get("slack_bot_token"),
-                    "slack_channel": settings_data.get("slack_channel"),
-                    "jira_url": settings_data.get("jira_url"),
-                    "jira_email": settings_data.get("jira_email"),
-                    "jira_token": settings_data.get("jira_api_token"),
-                    "jira_project_key": settings_data.get("jira_project_key", "SCRUM"),
-                    "notion_token": settings_data.get("notion_token"),
-                    "notion_database_id": settings_data.get("notion_database_id")
-                }
 
-        # 2. Fallback: Check the Organization (Legacy)
-        logger.info(f"⚠️ Project not found for {repo_full_name}. Checking Org settings...")
-        query = {
-            "$or": [
-                {"_id": org_id},
-                {"_id": ObjectId(org_id) if ObjectId.is_valid(org_id) else None}
-            ]
-        }
-        org_data = await db["organizations"].find_one(query)
-        
-        if not org_data:
-            logger.warning(f"⚠️ No organization found for ID: {org_id}")
+        if not project:
+            logger.warning("No project found for integration event (%s)", repo_full_name or project_id)
             return None
-            
-        settings_data = org_data.get("settings", {})
+        if repo_full_name:
+            expected_repo = f"{project.get('repo_owner', '')}/{project.get('repo_name', '')}"
+            if expected_repo.casefold() != repo_full_name.casefold():
+                logger.warning("Ignoring repo event that does not match project '%s'", project.get("name"))
+                return None
+
+        settings_data = project.get("settings", {})
+        oauth_credentials = await oauth_token_manager.credentials_for_project(org_id, str(project["_id"]))
         return {
-            "github_token": settings_data.get("github_access_token"),
-            "slack_token": settings_data.get("slack_bot_token"),
+            "project_id": str(project["_id"]),
+            "github_token": oauth_credentials.get("github_token") or settings_data.get("github_access_token"),
+            "slack_token": oauth_credentials.get("slack_token") or settings_data.get("slack_bot_token"),
             "slack_channel": settings_data.get("slack_channel"),
-            "jira_url": settings_data.get("jira_url"),
+            "jira_url": oauth_credentials.get("jira_url") or settings_data.get("jira_url"),
+            "jira_cloud_id": oauth_credentials.get("jira_cloud_id"),
+            "jira_oauth_token": oauth_credentials.get("jira_oauth_token"),
+            "jira_project_key": settings_data.get("jira_project_key", "SCRUM"),
             "jira_email": settings_data.get("jira_email"),
             "jira_token": settings_data.get("jira_api_token"),
             "jira_project_key": settings_data.get("jira_project_key", "SCRUM"),
@@ -115,7 +99,8 @@ async def save_scan_to_db(org_id, repo, pr_id, risk_data, pr_url, pr_title="Unti
 
 # --- WEBHOOK HANDLER ---
 @router.post("/github/{org_id}")
-async def handle_github_webhook(org_id: str, request: Request):
+@router.post("/github/{org_id}/{project_id}")
+async def handle_github_webhook(org_id: str, request: Request, project_id: Optional[str] = None):
     try:
         body_content = await request.body()
         if not body_content:
@@ -139,9 +124,9 @@ async def handle_github_webhook(org_id: str, request: Request):
             logger.info(f"✅ Processing PR #{pr_number} ({repo_full_name}) for Org: {org_id}")
 
             # 1. Fetch Credentials (Passing Repo Name to find Project)
-            creds = await get_org_credentials(org_id, repo_full_name)
+            creds = await get_org_credentials(org_id, repo_full_name, project_id)
             if not creds:
-                logger.error("❌ No credentials found (Project or Org level).")
+                logger.error("❌ No credentials found for this project.")
                 return {"status": "error", "message": "Credentials not found."}
 
             # 2. Get Diff (With Fixed Headers)
@@ -228,7 +213,9 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
             await send_slack_alert(creds, event_data["repo"], event_data["pr_id"], risk_data, notion_url, org_id)
         
         # Jira
-        if creds.get("jira_url") and creds.get("jira_token"):
+        if creds.get("jira_oauth_token") and creds.get("jira_cloud_id"):
+            await create_jira_ticket_oauth(creds, event_data["repo"], event_data["pr_id"], event_data["title"], risk_data, event_data["url"], notion_url)
+        elif creds.get("jira_url") and creds.get("jira_token"):
             create_jira_ticket(creds, event_data["repo"], event_data["pr_id"], event_data["title"], risk_data, event_data["url"], notion_url)
 
     # --- 3. High Risk Email ---
@@ -281,6 +268,46 @@ def create_jira_ticket(creds, repo, pr_id, pr_title, risk_data, pr_url, notion_u
         logger.info(f"🎫 Jira Ticket Created")
     except Exception as e:
         logger.error(f"❌ Jira Error: {e}")
+
+
+async def create_jira_ticket_oauth(creds, repo, pr_id, pr_title, risk_data, pr_url, notion_url=None):
+    cloud_id = creds.get("jira_cloud_id")
+    token = creds.get("jira_oauth_token")
+    if not cloud_id or not token:
+        return
+    description = f"Risk Score: {risk_data.get('risk_score')}/10\nReason: {risk_data.get('reason')}\nPR Link: {pr_url}"
+    if notion_url:
+        description += f"\nDetailed Report: {notion_url}"
+    payload = {
+        "fields": {
+            "project": {"key": creds.get("jira_project_key", "KAN")},
+            "summary": f"[Risk Detected] PR #{pr_id}: {pr_title}",
+            "description": {
+                "type": "doc",
+                "version": 1,
+                "content": [{"type": "paragraph", "content": [{"type": "text", "text": description}]}],
+            },
+            "issuetype": {"name": "Task"},
+        }
+    }
+    endpoint = f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue"
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(
+                endpoint,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+            )
+        if response.status_code in (200, 201):
+            logger.info("Jira issue created for project %s", creds.get("jira_project_key", "KAN"))
+        else:
+            logger.warning("Jira OAuth issue create failed (%s): %s", response.status_code, response.text[:300])
+    except Exception as exc:
+        logger.exception("Jira OAuth issue create failed: %s", exc)
 
 # --- INTERACTIVE HANDLER ---
 @router.post("/slack/actions")

@@ -69,6 +69,7 @@ NovaScan solves this by correlating **GitHub code diffs**, **Google Meet transcr
 - **Dark Mode Support**: Modern, responsive Next.js dashboard with full dark/light theme persistence.
 
 ### 🔗 1-Click Enterprise OAuth 2.0 Connectors (No Secret Key Sharing)
+- **Project-scoped connections**: Admins and project managers authorize GitHub, Slack, and Jira from an individual project. An organization can have many projects, and each project has its own independent provider connections; there is no shared organization-level integration page.
 - **Zero Key Friction**: Teams connect software tools in one click without manually sharing private Personal Access Tokens (PATs) or secret credentials.
 - **GitHub App Connector**: Auto-subscribes webhooks and issues short-lived installation access tokens with granular read-only repository permissions.
 - **Slack 1-Click OAuth ("Add to Slack")**: Standard OAuth 2.0 authorization (`channels:history`, `chat:write`) exchanging temporary codes for bot tokens.
@@ -216,16 +217,23 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 # Configure OAuth credentials in backend/.env (create it if needed).
+# In production, set FRONTEND_URL to the public frontend origin (for example,
+# https://app.example.com) and BASE_URL to the public backend origin (for
+# example, https://api.example.com). Do not leave FRONTEND_URL at localhost.
 # Register these callback URLs in the matching provider app:
 #   GitHub:   http://localhost:8000/api/v1/oauth/github/callback
 #   Slack:    http://localhost:8000/api/v1/oauth/slack/callback
 #   Atlassian:http://localhost:8000/api/v1/oauth/jira/callback
-# For hosted deployments, use the public HTTPS backend URL instead.
+# For hosted deployments, register the matching public HTTPS backend URL
+# (or set each provider's *_REDIRECT_URI to that exact registered URL).
 # Set BASE_URL, FRONTEND_URL, SECRET_KEY, ENCRYPTION_SECRET_KEY, and the
 # provider pairs GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET,
 # SLACK_CLIENT_ID/SLACK_CLIENT_SECRET, JIRA_CLIENT_ID/JIRA_CLIENT_SECRET.
 # Optional *_REDIRECT_URI values override the callback URL defaults above.
 # Keep all secrets server-side; never add them to NEXT_PUBLIC_* variables.
+# OAuth connections are authorized and managed from each project's page.
+# The OAuth client credentials above configure the app; each project still
+# requires its own approval in GitHub, Slack, or Atlassian.
 
 # Start FastAPI development server
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
