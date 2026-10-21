@@ -373,7 +373,7 @@ export default function ProjectSettingsPage() {
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
           <div>
             <h2 className="text-lg font-semibold">Project integrations</h2>
-            <p className="text-sm text-muted-foreground">These connections are exclusive to {project.name}. GitHub currently uses the OAuth account you authorize to access this project’s configured repository ({project.repo_owner}/{project.repo_name}).</p>
+            <p className="text-sm text-muted-foreground">These connections are exclusive to {project.name}. GitHub is installed for the configured repository ({project.repo_owner}/{project.repo_name}) with repository-scoped access.</p>
           </div>
           <button type="button" onClick={refreshOAuth} className="self-start rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50 sm:self-auto">Refresh status</button>
         </div>

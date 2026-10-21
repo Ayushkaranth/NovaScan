@@ -177,7 +177,6 @@ async def handle_github_webhook(org_id: str, request: Request, project_id: Optio
 @router.post("/github/app")
 async def handle_github_app_webhook(request: Request):
     """Verify and route GitHub App events to the exact linked project repository."""
-    # This endpoint is dormant until the GitHub App migration is enabled.
     webhook_secret = getattr(settings, "GITHUB_WEBHOOK_SECRET", None)
     if not (webhook_secret and github_app_configured()):
         return {"status": "disabled"}

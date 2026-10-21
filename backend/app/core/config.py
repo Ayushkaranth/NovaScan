@@ -23,15 +23,14 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: Optional[str] = None
 
     # --- Enterprise OAuth 2.0 Connectors Settings ---
-    # GitHub App variables are parked until the production deployment team is ready.
-    # Uncomment these together when enabling the repository-scoped GitHub App flow:
-    # GITHUB_APP_ID: Optional[str] = None
-    # GITHUB_APP_SLUG: Optional[str] = None
-    # GITHUB_APP_PRIVATE_KEY: Optional[str] = None
-    # GITHUB_APP_CLIENT_ID: Optional[str] = None
-    # GITHUB_APP_CLIENT_SECRET: Optional[str] = None
-    # GITHUB_WEBHOOK_SECRET: Optional[str] = None
-    # The existing GitHub OAuth App credentials remain active for now.
+    # Repository-scoped GitHub App OAuth. Legacy OAuth App credentials remain
+    # available as a fallback for older installations.
+    GITHUB_APP_ID: Optional[str] = None
+    GITHUB_APP_SLUG: Optional[str] = None
+    GITHUB_APP_PRIVATE_KEY: Optional[str] = None
+    GITHUB_APP_CLIENT_ID: Optional[str] = None
+    GITHUB_APP_CLIENT_SECRET: Optional[str] = None
+    GITHUB_WEBHOOK_SECRET: Optional[str] = None
     GITHUB_CLIENT_ID: Optional[str] = None
     GITHUB_CLIENT_SECRET: Optional[str] = None
     GITHUB_APP_NAME: Optional[str] = "novascan-ai-app"

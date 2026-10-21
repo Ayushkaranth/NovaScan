@@ -310,7 +310,7 @@ export default function MasterOnboarding() {
               </h3>
 
               <div className="rounded-lg border border-border bg-muted/30 p-5 space-y-4">
-                <p className="text-sm text-muted-foreground">Each project has its own connections. Authorize the GitHub account that can access this project’s configured repository; Slack and Jira connect to the workspace or site you choose.</p>
+                <p className="text-sm text-muted-foreground">Each project has its own connections. GitHub uses the NovaScan GitHub App and grants access only to this project’s configured repository. Slack and Jira connect to the workspace or site you choose.</p>
                 {oauthNotice && <p role="status" className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm text-primary">{oauthNotice}</p>}
                 <div className="grid gap-3 sm:grid-cols-3">
                   {providers.map(({ id, name, icon: Icon }) => {

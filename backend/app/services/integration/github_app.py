@@ -9,9 +9,7 @@ from app.core.config import settings
 
 
 def github_app_configured() -> bool:
-    # The GitHub App migration is parked while the existing OAuth App flow is
-    # active. getattr keeps dormant webhook routes safe when these settings are
-    # intentionally absent from the production environment.
+    """Return whether the GitHub App OAuth and signed webhook settings are ready."""
     return bool(
         getattr(settings, "GITHUB_APP_ID", None)
         and getattr(settings, "GITHUB_APP_SLUG", None)

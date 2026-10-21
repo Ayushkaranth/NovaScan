@@ -170,11 +170,10 @@ class OAuthTokenManager:
             conn = await self.get_connection(org_id, project_id, name)
             if not conn or conn.get("status") != "connected":
                 continue
-            # Parked GitHub App metadata mapping (reenable after GITHUB_APP_* deployment):
-            # if name == "github" and conn.get("installation_id") and conn.get("repository_id"):
-            #     set_fields["settings.github_repository"] = conn.get("repository_full_name")
-            #     set_fields["settings.github_login"] = conn.get("login")
-            #     applied.append(name)
+            if name == "github" and conn.get("mode") == "github_app_repository" and conn.get("installation_id") and conn.get("repository_id"):
+                set_fields["settings.github_repository"] = conn.get("repository_full_name")
+                set_fields["settings.github_login"] = conn.get("login")
+                applied.append(name)
             if name == "github" and (conn.get("access_token") or conn.get("github_access_token")):
                 set_fields["settings.github_login"] = conn.get("login")
                 applied.append(name)
@@ -197,12 +196,12 @@ class OAuthTokenManager:
         """Return decrypted credentials authorized for this exact project."""
         out: Dict[str, Any] = {}
         github = await self.get_connection(org_id, project_id, "github")
-        # Parked GitHub App token path (reenable after GITHUB_APP_* deployment):
-        # if github and github.get("installation_id") and github.get("repository_id"):
-        #     from app.services.integration.github_app import create_repository_token
-        #     out["github_token"] = await create_repository_token(github["installation_id"], github["repository_id"])
         if github:
-            out["github_token"] = github.get("access_token") or github.get("github_access_token")
+            if github.get("mode") == "github_app_repository" and github.get("installation_id") and github.get("repository_id"):
+                from app.services.integration.github_app import create_repository_token
+                out["github_token"] = await create_repository_token(github["installation_id"], github["repository_id"])
+            else:
+                out["github_token"] = github.get("access_token") or github.get("github_access_token")
             out["github_login"] = github.get("login")
         slack = await self.get_connection(org_id, project_id, "slack")
         if slack:
