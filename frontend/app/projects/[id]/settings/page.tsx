@@ -194,7 +194,9 @@ export default function ProjectSettingsPage() {
     setError('');
     try {
       const { data } = await api.get(`/oauth/${provider}/authorize`, {
-        params: { project_id: projectId, return_to: 'settings' },
+        // GitHub reconnects should land on the project dashboard so its live
+        // integration status is visible immediately after the callback.
+        params: { project_id: projectId, return_to: provider === 'github' ? 'project' : 'settings' },
       });
       if (!data.auth_url) throw new Error('The server did not return an authorization URL.');
       window.location.assign(data.auth_url);

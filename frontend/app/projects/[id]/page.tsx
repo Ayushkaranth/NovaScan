@@ -26,7 +26,7 @@ import {
 type OAuthProvider = 'github' | 'slack' | 'jira';
 type ProjectIntegrationStatus = {
   configured?: Partial<Record<OAuthProvider, boolean>>;
-  connections?: Partial<Record<OAuthProvider, { status?: string; workspace_name?: string; scope?: string; connected_at?: string }>>;
+  connections?: Partial<Record<OAuthProvider, { status?: string; workspace_name?: string; scope?: string; connected_at?: string; details?: { repository?: string } }>>;
 };
 
 const integrationProviders: { id: OAuthProvider; name: string; icon: typeof Github }[] = [
@@ -91,6 +91,11 @@ export default function ProjectDashboard() {
   useEffect(() => {
     fetchIntegrationStatus();
   }, [projectId]);
+
+  useEffect(() => {
+    if (loading || searchParams.get('status') !== 'success') return;
+    document.getElementById('project-integrations')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [loading, searchParams]);
 
   const connectIntegration = async (provider: OAuthProvider) => {
     setActiveIntegration(provider);
@@ -209,7 +214,7 @@ export default function ProjectDashboard() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Icon className="h-5 w-5" /></div>
-                    <div><h3 className="font-semibold">{name}</h3><p className="mt-0.5 text-xs text-muted-foreground">{integrationsLoading ? 'Checking connection…' : connected ? connection?.workspace_name || 'Connected' : connection?.status === 'expired' ? 'Reconnect required' : 'Not connected'}</p></div>
+                    <div><h3 className="font-semibold">{name}</h3><p className="mt-0.5 text-xs text-muted-foreground">{integrationsLoading ? 'Checking connection…' : connected ? (id === 'github' ? connection?.details?.repository || connection?.workspace_name || 'Connected' : connection?.workspace_name || 'Connected') : connection?.status === 'expired' ? 'Reconnect required' : 'Not connected'}</p></div>
                   </div>
                   {connected && <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />}
                 </div>
