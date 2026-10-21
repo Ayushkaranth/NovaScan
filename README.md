@@ -1,4 +1,4 @@
-# NovaScan: AI-Driven Enterprise Risk & SDLC Intelligence Platform
+# NovaScan: AI-Driven Enterprise Risk & SDLC Intelligence Platforms
 
 <div align="center">
 
