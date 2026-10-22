@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     JIRA_CLIENT_SECRET: Optional[str] = None
     JIRA_REDIRECT_URI: Optional[str] = None
 
+    NOTION_CLIENT_ID: Optional[str] = None
+    NOTION_CLIENT_SECRET: Optional[str] = None
+    NOTION_REDIRECT_URI: Optional[str] = None
+
     @property
     def github_redirect(self) -> str:
         return self.GITHUB_REDIRECT_URI or f"{self.BASE_URL.rstrip('/')}/api/v1/oauth/github/callback"
@@ -55,6 +59,10 @@ class Settings(BaseSettings):
     @property
     def jira_redirect(self) -> str:
         return self.JIRA_REDIRECT_URI or f"{self.BASE_URL.rstrip('/')}/api/v1/oauth/jira/callback"
+
+    @property
+    def notion_redirect(self) -> str:
+        return self.NOTION_REDIRECT_URI or f"{self.BASE_URL.rstrip('/')}/api/v1/oauth/notion/callback"
 
     # Legacy & Token Integrations
     TEST_GITHUB_TOKEN: Optional[str] = None

@@ -20,19 +20,21 @@ import {
   Loader2,
   PlugZap,
   Unplug,
-  Settings
+  Settings,
+  FileText
 } from 'lucide-react';
 
-type OAuthProvider = 'github' | 'slack' | 'jira';
+type OAuthProvider = 'github' | 'slack' | 'jira' | 'notion';
 type ProjectIntegrationStatus = {
   configured?: Partial<Record<OAuthProvider, boolean>>;
-  connections?: Partial<Record<OAuthProvider, { status?: string; workspace_name?: string; scope?: string; connected_at?: string; details?: { repository?: string } }>>;
+  connections?: Partial<Record<OAuthProvider, { status?: string; workspace_name?: string; scope?: string; connected_at?: string; details?: { repository?: string; parent_page_name?: string } }>>;
 };
 
-const integrationProviders: { id: OAuthProvider; name: string; icon: typeof Github }[] = [
+const integrationProviders: { id: OAuthProvider; name: string; icon: any }[] = [
   { id: 'github', name: 'GitHub', icon: Github },
   { id: 'slack', name: 'Slack', icon: Slack },
   { id: 'jira', name: 'Jira', icon: Trello },
+  { id: 'notion', name: 'Notion Audit Reports', icon: FileText },
 ];
 
 export default function ProjectDashboard() {
@@ -101,7 +103,9 @@ export default function ProjectDashboard() {
     setActiveIntegration(provider);
     setIntegrationError('');
     try {
-      const { data } = await api.get(`/oauth/${provider}/authorize`, { params: { project_id: projectId } });
+      const { data } = await api.get(`/oauth/${provider}/authorize`, {
+        params: { project_id: projectId, ...(provider === 'notion' ? { return_to: 'settings' } : {}) },
+      });
       if (!data.auth_url) throw new Error('The server did not return an authorization URL.');
       window.location.assign(data.auth_url);
     } catch (err: any) {
@@ -203,7 +207,7 @@ export default function ProjectDashboard() {
           </button>
         </div>
         {integrationError && <p role="alert" className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{integrationError}</p>}
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {integrationProviders.map(({ id, name, icon: Icon }) => {
             const connection = integrationStatus.connections?.[id];
             const connected = connection?.status === 'connected';
@@ -214,7 +218,7 @@ export default function ProjectDashboard() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Icon className="h-5 w-5" /></div>
-                    <div><h3 className="font-semibold">{name}</h3><p className="mt-0.5 text-xs text-muted-foreground">{integrationsLoading ? 'Checking connection…' : connected ? (id === 'github' ? connection?.details?.repository || connection?.workspace_name || 'Connected' : connection?.workspace_name || 'Connected') : connection?.status === 'expired' ? 'Reconnect required' : 'Not connected'}</p></div>
+                    <div><h3 className="font-semibold">{name}</h3><p className="mt-0.5 text-xs text-muted-foreground">{integrationsLoading ? 'Checking connection…' : connected ? (id === 'github' ? connection?.details?.repository || connection?.workspace_name || 'Connected' : id === 'notion' ? connection?.details?.parent_page_name || `${connection?.workspace_name || 'Connected'} · choose report page in settings` : connection?.workspace_name || 'Connected') : connection?.status === 'expired' ? 'Reconnect required' : 'Not connected'}</p></div>
                   </div>
                   {connected && <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />}
                 </div>

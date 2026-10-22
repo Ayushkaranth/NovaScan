@@ -72,6 +72,7 @@ NovaScan solves this by correlating **GitHub code diffs**, **Google Meet transcr
 - **Project-scoped connections**: Admins and project managers authorize GitHub, Slack, and Jira from an individual project. An organization can have many projects, and each project has its own independent provider connections; there is no shared organization-level integration page.
 - **Zero Key Friction**: Teams connect software tools in one click without manually sharing private Personal Access Tokens (PATs) or secret credentials.
 - **GitHub connector**: Installs the NovaScan GitHub App with access limited to the project’s selected repository.
+- **Notion audit reports**: Project admins connect a Notion public integration and choose a shared report page. Medium/high risk events (score 4/10 or above) create a detailed audit report and include its link in configured Slack/Jira alerts.
 - **Slack 1-Click OAuth ("Add to Slack")**: Standard OAuth 2.0 authorization (`channels:history`, `chat:write`) exchanging temporary codes for bot tokens.
 - **Atlassian Jira 3LO OAuth**: 3-Legged OAuth integration with automatic background token renewal (`offline_access`).
 - **AES-256 Token Vault**: All OAuth refresh tokens and credentials are encrypted at rest via envelope encryption (`oauth_token_manager.py`).
@@ -88,7 +89,7 @@ NovaScan connects seamlessly with standard software engineering tools:
 | **Slack Workspace** | 1-Click OAuth 2.0 ("Add to Slack") | Real-time channel discussion context gathering and interactive visual security alerting. |
 | **Atlassian Jira** | 3-Legged OAuth 2.0 (3LO) | Automated issue ticket provisioning for meeting action items and high-risk PRs with auto-refresh tokens. |
 | **Google Meet** | Webhooks / Free Extensions / VTT | Meeting transcript ingestion, speaker dialogue parsing, and automated MOM extraction. |
-| **Notion** | Notion REST API | Automated publishing of structured Meeting Minutes (MOM) and technical post-mortems. |
+| **Notion** | Notion OAuth 2.0 / REST API | Creates project-scoped audit reports for medium/high risk events; Google Meet MOM publishing can continue using its existing configured destination. |
 | **AI LLM Engines** | Gemini / OpenAI / Claude / Ollama | Multi-provider intelligence engine for risk scoring, intent analysis, and JSON schema enforcement. |
 
 ---
@@ -224,6 +225,7 @@ pip install -r requirements.txt
 #   GitHub App user authorization callback: http://localhost:8000/api/v1/oauth/github/callback
 #   Slack:    http://localhost:8000/api/v1/oauth/slack/callback
 #   Atlassian:http://localhost:8000/api/v1/oauth/jira/callback
+#   Notion:   http://localhost:8000/api/v1/oauth/notion/callback
 # For hosted deployments, register the matching public HTTPS backend URL
 # (or set each provider's *_REDIRECT_URI to that exact registered URL).
 # Configure GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_PRIVATE_KEY,
@@ -241,6 +243,11 @@ pip install -r requirements.txt
 # Also configure BASE_URL, FRONTEND_URL, SECRET_KEY, ENCRYPTION_SECRET_KEY, and
 # the provider pairs SLACK_CLIENT_ID/SLACK_CLIENT_SECRET,
 # JIRA_CLIENT_ID/JIRA_CLIENT_SECRET.
+# Configure NOTION_CLIENT_ID and NOTION_CLIENT_SECRET for the Notion public
+# connection. Add the Notion callback URL above to its OAuth redirect URIs and
+# enable Read content and Insert content capabilities. Users choose the pages
+# NovaScan can access during consent, then select the audit report parent page
+# in the project settings.
 # Optional *_REDIRECT_URI values override the callback URL defaults above.
 # Keep all secrets server-side; never add them to NEXT_PUBLIC_* variables.
 # OAuth connections are authorized and managed from each project's page.
@@ -301,6 +308,11 @@ JIRA_EMAIL="user@company.com"
 JIRA_API_TOKEN="your_jira_api_token"
 NOTION_TOKEN="secret_your_notion_integration_token"
 NOTION_DATABASE_ID="your_notion_database_id"
+# Notion OAuth public connection credentials:
+NOTION_CLIENT_ID="your_notion_public_connection_client_id"
+NOTION_CLIENT_SECRET="your_notion_public_connection_client_secret"
+# Optional; defaults to {BASE_URL}/api/v1/oauth/notion/callback
+# NOTION_REDIRECT_URI="https://api.example.com/api/v1/oauth/notion/callback"
 ```
 
 ### Frontend (`frontend/.env.local`)

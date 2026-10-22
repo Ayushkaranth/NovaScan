@@ -73,8 +73,11 @@ async def get_org_credentials(org_id: str, repo_full_name: str = None, project_i
             "jira_email": settings_data.get("jira_email"),
             "jira_token": settings_data.get("jira_api_token"),
             "jira_project_key": settings_data.get("jira_project_key", "SCRUM"),
-            "notion_token": settings_data.get("notion_token"),
-            "notion_database_id": settings_data.get("notion_database_id")
+            "notion_token": oauth_credentials.get("notion_token") or settings_data.get("notion_token"),
+            "notion_database_id": settings_data.get("notion_database_id"),
+            "notion_parent_page_id": oauth_credentials.get("notion_parent_page_id") or settings_data.get("notion_parent_page_id"),
+            "notion_parent_page_name": oauth_credentials.get("notion_parent_page_name"),
+            "notion_parent_page_url": oauth_credentials.get("notion_parent_page_url")
         }
     except Exception as e:
         logger.error(f"❌ Error fetching credentials: {e}")
@@ -164,7 +167,8 @@ async def handle_github_webhook(org_id: str, request: Request, project_id: Optio
                 "title": title,
                 "url": pr_url,
                 "repo": repo_full_name,
-                "pr_id": pr_number
+                "pr_id": pr_number,
+                "author": user_login,
             }
             await dispatch_notifications(creds, risk_analysis, event_data, org_id)
 
@@ -230,7 +234,7 @@ async def _process_github_app_event(org_id: str, project_id: str, payload: dict)
     await save_scan_to_db(org_id, repo_name, pr["number"], risk, pr.get("html_url"), pr_title=pr.get("title", "Untitled"), pr_author=author)
     await dispatch_notifications(creds, risk, {
         "summary": f"PR #{pr['number']} in {repo_name}", "title": pr.get("title", "Untitled"),
-        "url": pr.get("html_url"), "repo": repo_name, "pr_id": pr["number"],
+        "url": pr.get("html_url"), "repo": repo_name, "pr_id": pr["number"], "author": author,
     }, org_id)
     return {"status": "processed"}
 
@@ -255,25 +259,28 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
             manager_name = manager.get("full_name", "Project Manager")
             manager_email = manager.get("email")
 
-    # --- 1. Create Notion Report ---
-    if creds.get("notion_token") and creds.get("notion_database_id"):
+    risk_score = int(risk_data.get("risk_score", 0) or 0)
+
+    # --- 1. Create a Notion audit report for medium or higher risk ---
+    if risk_score >= 4 and creds.get("notion_token") and (creds.get("notion_parent_page_id") or creds.get("notion_database_id")):
         notion_res = await notion_bot.create_incident_report(
             analysis=risk_data,
             event_summary=event_data["summary"],
             pr_url=event_data["url"],
             notion_token=creds.get("notion_token"),
-            database_id=creds.get("notion_database_id")
+            database_id=creds.get("notion_database_id"),
+            parent_page_id=creds.get("notion_parent_page_id"),
+            report_context=event_data,
         )
         if notion_res:
             notion_url = notion_res.get("url")
             logger.info(f"📄 Notion report created: {notion_url}")
-    else:
+    elif risk_score >= 4:
         logger.info("ℹ️ Notion skipped (Tokens missing in Project settings)")
 
-    # --- 2. Send Alerts (> 5) ---
-    risk_score = risk_data.get("risk_score", 0)
+    # --- 2. Raise Slack and Jira alerts for medium/high scores ---
     
-    if risk_score > 5:
+    if risk_score >= 4:
         # Slack
         if creds.get("slack_token") and creds.get("slack_channel"):
             await send_slack_alert(creds, event_data["repo"], event_data["pr_id"], risk_data, notion_url, org_id)

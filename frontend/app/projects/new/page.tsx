@@ -3,9 +3,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
-import { ArrowLeft, Github, Slack, Trello, Check, User as UserIcon, Shield, ExternalLink, Loader2 } from 'lucide-react';
+import { ArrowLeft, Github, Slack, Trello, Check, User as UserIcon, Shield, ExternalLink, Loader2, FileText } from 'lucide-react';
 
-type OAuthProvider = 'github' | 'slack' | 'jira';
+type OAuthProvider = 'github' | 'slack' | 'jira' | 'notion';
 type OAuthStatus = {
   configured?: Partial<Record<OAuthProvider, boolean>>;
   connections?: Partial<Record<OAuthProvider, { status?: string; live?: boolean; workspace_name?: string }>>;
@@ -13,10 +13,11 @@ type OAuthStatus = {
 
 const onboardingStorageKey = 'novascan:new-project-onboarding';
 
-const providers: { id: OAuthProvider; name: string; icon: typeof Github }[] = [
+const providers: { id: OAuthProvider; name: string; icon: any }[] = [
   { id: 'github', name: 'GitHub', icon: Github },
   { id: 'slack', name: 'Slack', icon: Slack },
   { id: 'jira', name: 'Jira', icon: Trello },
+  { id: 'notion', name: 'Notion Audit Reports', icon: FileText },
 ];
 
 export default function MasterOnboarding() {
@@ -310,7 +311,7 @@ export default function MasterOnboarding() {
               </h3>
 
               <div className="rounded-lg border border-border bg-muted/30 p-5 space-y-4">
-                <p className="text-sm text-muted-foreground">Each project has its own connections. GitHub uses the NovaScan GitHub App and grants access only to this project’s configured repository. Slack and Jira connect to the workspace or site you choose.</p>
+                <p className="text-sm text-muted-foreground">Each project has its own connections. GitHub uses the NovaScan GitHub App for this repository. Slack and Jira connect to the workspace or site you choose. Notion publishes audit reports for medium and high risk events after you select the report page in project settings.</p>
                 {oauthNotice && <p role="status" className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm text-primary">{oauthNotice}</p>}
                 <div className="grid gap-3 sm:grid-cols-3">
                   {providers.map(({ id, name, icon: Icon }) => {

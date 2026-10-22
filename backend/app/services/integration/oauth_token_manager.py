@@ -44,7 +44,7 @@ def _public_summary(data: Dict[str, Any]) -> Dict[str, Any]:
         "scope": data.get("scope", "read-only"),
         "details": {
             key: data.get(key)
-            for key in ("team_id", "cloud_id", "login", "site_url", "channel", "channel_id", "repository", "repository_id")
+            for key in ("team_id", "cloud_id", "login", "site_url", "channel", "channel_id", "repository", "repository_id", "workspace_id", "parent_page_id", "parent_page_name", "parent_page_url")
             if data.get(key)
         } | ({"repository": data.get("repository_full_name"), "repository_id": data.get("repository_id")} if data.get("repository_full_name") else {}),
     }
@@ -163,7 +163,7 @@ class OAuthTokenManager:
         if str(project.get("organization_id")) != str(org_id):
             return {"applied": [], "error": "project_access_denied"}
 
-        provider_names = [provider.lower()] if provider else ["github", "slack", "jira"]
+        provider_names = [provider.lower()] if provider else ["github", "slack", "jira", "notion"]
         set_fields: Dict[str, Any] = {}
         applied: List[str] = []
         for name in provider_names:
@@ -186,6 +186,9 @@ class OAuthTokenManager:
                 set_fields["settings.jira_cloud_id"] = conn.get("cloud_id")
                 if conn.get("site_url"):
                     set_fields["settings.jira_url"] = conn.get("site_url")
+                applied.append(name)
+            elif name == "notion" and conn.get("access_token") and conn.get("parent_page_id"):
+                set_fields["settings.notion_parent_page_id"] = conn.get("parent_page_id")
                 applied.append(name)
 
         if set_fields:
@@ -215,6 +218,15 @@ class OAuthTokenManager:
             out["jira_refresh_token"] = jira.get("refresh_token")
             out["jira_cloud_id"] = jira.get("cloud_id")
             out["jira_url"] = jira.get("site_url")
+        await self.refresh_notion_token_if_needed(org_id, project_id)
+        notion = await self.get_connection(org_id, project_id, "notion")
+        if notion:
+            out["notion_token"] = notion.get("access_token")
+            out["notion_refresh_token"] = notion.get("refresh_token")
+            out["notion_parent_page_id"] = notion.get("parent_page_id")
+            out["notion_parent_page_name"] = notion.get("parent_page_name")
+            out["notion_parent_page_url"] = notion.get("parent_page_url")
+            out["notion_workspace_id"] = notion.get("workspace_id")
         return out
 
     async def refresh_jira_token_if_needed(self, org_id: str, project_id: str) -> Optional[str]:
@@ -256,6 +268,47 @@ class OAuthTokenManager:
                 return tokens.get("access_token")
         except Exception as exc:
             logger.error("Exception refreshing Jira OAuth token: %s", exc)
+            return conn.get("access_token")
+
+    async def refresh_notion_token_if_needed(self, org_id: str, project_id: str) -> Optional[str]:
+        conn = await self.get_connection(org_id, project_id, "notion")
+        if not conn or not conn.get("refresh_token"):
+            return conn.get("access_token") if conn else None
+        expires_at = conn.get("access_token_expires_at")
+        if not expires_at:
+            return conn.get("access_token")
+        if isinstance(expires_at, str):
+            try:
+                expires_at = datetime.fromisoformat(expires_at)
+            except ValueError:
+                expires_at = None
+        if expires_at and expires_at > datetime.utcnow() + timedelta(seconds=60):
+            return conn.get("access_token")
+        if not (settings.NOTION_CLIENT_ID and settings.NOTION_CLIENT_SECRET):
+            return conn.get("access_token")
+
+        try:
+            import base64
+            basic = base64.b64encode(f"{settings.NOTION_CLIENT_ID}:{settings.NOTION_CLIENT_SECRET}".encode()).decode()
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    "https://api.notion.com/v1/oauth/token",
+                    headers={"Authorization": f"Basic {basic}", "Content-Type": "application/json", "Accept": "application/json"},
+                    json={"grant_type": "refresh_token", "refresh_token": conn["refresh_token"]},
+                )
+            if response.status_code != 200:
+                logger.warning("Failed to refresh Notion OAuth token (%s)", response.status_code)
+                return conn.get("access_token")
+            tokens = response.json()
+            conn["access_token"] = tokens.get("access_token")
+            conn["refresh_token"] = tokens.get("refresh_token") or conn["refresh_token"]
+            expires_in = tokens.get("expires_in")
+            if expires_in:
+                conn["access_token_expires_at"] = datetime.utcnow() + timedelta(seconds=int(expires_in))
+            await self.save_connection(org_id, project_id, "notion", conn)
+            return conn.get("access_token")
+        except Exception as exc:
+            logger.warning("Exception refreshing Notion OAuth token: %s", exc)
             return conn.get("access_token")
 
 

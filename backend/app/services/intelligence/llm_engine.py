@@ -103,8 +103,12 @@ async def analyze_code(diff: str, pr_details: dict, custom_api_key: Optional[str
     Respond strictly in JSON:
     {{
         "risk_score": 1-10,
-        "reason": "short explanation",
-        "is_risky": true/false
+        "reason": "clear explanation of the risk and evidence in the change",
+        "is_risky": true/false,
+        "action_needed": "the most important immediate action",
+        "recommendations": ["three concise, concrete remediation or review steps"],
+        "impact": "likely user, security, reliability, or delivery impact",
+        "affected_areas": ["systems or code areas that need review"]
     }}
     """
     try:
@@ -114,5 +118,13 @@ async def analyze_code(diff: str, pr_details: dict, custom_api_key: Optional[str
         return {
             "risk_score": 5,
             "reason": "AI analysis executed via fallback safeguards.",
-            "is_risky": True
+            "is_risky": True,
+            "action_needed": "Review the pull request and validate its behavior before merging.",
+            "recommendations": [
+                "Have a project owner review the affected code paths.",
+                "Run relevant unit and integration tests.",
+                "Confirm rollback and monitoring steps before release.",
+            ],
+            "impact": "The change could affect the reliability or security of the application.",
+            "affected_areas": ["Pull request changes; confirm the specific affected components during review."],
         }

@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from urllib.parse import urlencode, quote
+import base64
 import logging
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -30,6 +31,10 @@ class OAuthCallbackPayload(BaseModel):
     org_id: Optional[str] = None
     installation_id: Optional[str] = None
     provider: Optional[str] = None
+
+
+class NotionDestinationPayload(BaseModel):
+    page_id: str
 
 
 def _frontend_result_url(
@@ -128,6 +133,7 @@ def _require_client(provider: str, client_id: Optional[str], client_secret: Opti
             "github": "GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET",
             "slack": "SLACK_CLIENT_ID and SLACK_CLIENT_SECRET",
             "jira": "JIRA_CLIENT_ID and JIRA_CLIENT_SECRET",
+            "notion": "NOTION_CLIENT_ID and NOTION_CLIENT_SECRET",
         }
         raise HTTPException(
             status_code=503,
@@ -167,7 +173,7 @@ async def _live_check(provider: str, conn: Dict[str, Any]) -> Dict[str, Any]:
     summary["scope"] = conn.get("scope")
     summary["details"] = {
         k: conn.get(k)
-        for k in ("team_id", "cloud_id", "login", "site_url", "channel", "channel_id")
+        for k in ("team_id", "cloud_id", "login", "site_url", "channel", "channel_id", "workspace_id", "parent_page_id", "parent_page_name", "parent_page_url")
         if conn.get(k)
     }
 
@@ -228,6 +234,24 @@ async def _live_check(provider: str, conn: Dict[str, Any]) -> Dict[str, Any]:
                         summary["workspace_name"] = sites[0].get("name") or summary["workspace_name"]
                         summary["details"]["cloud_id"] = sites[0].get("id")
                         summary["details"]["site_url"] = sites[0].get("url")
+            elif provider == "notion":
+                token = await oauth_token_manager.refresh_notion_token_if_needed(
+                    conn.get("org_id"), conn.get("project_id")
+                ) or conn.get("access_token")
+                if not token:
+                    return summary
+                res = await client.get(
+                    "https://api.notion.com/v1/users/me",
+                    headers={"Authorization": f"Bearer {token}", "Notion-Version": "2022-06-28"},
+                )
+                summary["live"] = res.status_code == 200
+                if res.status_code == 200:
+                    summary["workspace_name"] = conn.get("workspace_name") or "Notion workspace"
+                    summary["details"].update({
+                        key: conn.get(key)
+                        for key in ("workspace_id", "parent_page_id", "parent_page_name", "parent_page_url")
+                        if conn.get(key)
+                    })
     except Exception as e:
         logger.warning("Live OAuth check failed for %s: %s", provider, e)
         summary["live"] = False
@@ -271,6 +295,7 @@ async def get_oauth_configuration(current_user: User = Depends(get_current_user)
             "github": github_app_configured() or bool(settings.GITHUB_CLIENT_ID and settings.GITHUB_CLIENT_SECRET),
             "slack": bool(settings.SLACK_CLIENT_ID and settings.SLACK_CLIENT_SECRET),
             "jira": bool(settings.JIRA_CLIENT_ID and settings.JIRA_CLIENT_SECRET),
+            "notion": bool(settings.NOTION_CLIENT_ID and settings.NOTION_CLIENT_SECRET),
         }
     }
 
@@ -288,10 +313,12 @@ async def get_oauth_status(
     await _validate_project_scope(current_user, project_id)
     stored = await oauth_token_manager.list_connections(org_id, project_id)
     connections = {}
-    for provider in ("github", "slack", "jira"):
+    for provider in ("github", "slack", "jira", "notion"):
         if live:
             if provider == "jira":
                 await oauth_token_manager.refresh_jira_token_if_needed(org_id, project_id)
+            elif provider == "notion":
+                await oauth_token_manager.refresh_notion_token_if_needed(org_id, project_id)
             conn = await oauth_token_manager.get_connection(org_id, project_id, provider)
             connections[provider] = await _live_check(provider, conn)
         else:
@@ -301,6 +328,7 @@ async def get_oauth_status(
         "github": github_app_configured() or bool(settings.GITHUB_CLIENT_ID and settings.GITHUB_CLIENT_SECRET),
         "slack": bool(settings.SLACK_CLIENT_ID and settings.SLACK_CLIENT_SECRET),
         "jira": bool(settings.JIRA_CLIENT_ID and settings.JIRA_CLIENT_SECRET),
+        "notion": bool(settings.NOTION_CLIENT_ID and settings.NOTION_CLIENT_SECRET),
     }
 
     return {
@@ -406,6 +434,95 @@ async def get_jira_auth_url(
     }
 
 
+@router.get("/notion/authorize")
+async def get_notion_auth_url(
+    project_id: str = Query(...),
+    return_to: str = Query("project"),
+    current_user: User = Depends(get_current_user),
+):
+    _require_admin_or_manager(current_user)
+    _require_client("notion", settings.NOTION_CLIENT_ID, settings.NOTION_CLIENT_SECRET)
+    await _validate_project_scope(current_user, project_id)
+    state = _encode_state(current_user.current_org_id, current_user.id, "notion", project_id, return_to)
+    params = {
+        "owner": "user",
+        "client_id": settings.NOTION_CLIENT_ID,
+        "redirect_uri": settings.notion_redirect,
+        "response_type": "code",
+        "state": state,
+    }
+    return {
+        "provider": "notion",
+        "auth_url": f"https://api.notion.com/v1/oauth/authorize?{urlencode(params)}",
+        "redirect_uri": settings.notion_redirect,
+        "access": "pages selected by the authorizing user",
+    }
+
+
+@router.get("/notion/pages")
+async def get_notion_report_pages(
+    project_id: str = Query(...),
+    current_user: User = Depends(get_current_user),
+):
+    _require_admin_or_manager(current_user)
+    await _validate_project_scope(current_user, project_id)
+    token = await oauth_token_manager.refresh_notion_token_if_needed(current_user.current_org_id, project_id)
+    if not token:
+        raise HTTPException(status_code=409, detail="Connect Notion to this project before choosing an audit report page")
+    headers = {"Authorization": f"Bearer {token}", "Notion-Version": "2022-06-28", "Content-Type": "application/json"}
+    pages = []
+    cursor = None
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        for _ in range(5):
+            body: Dict[str, Any] = {"page_size": 100, "filter": {"property": "object", "value": "page"}}
+            if cursor:
+                body["start_cursor"] = cursor
+            response = await client.post("https://api.notion.com/v1/search", headers=headers, json=body)
+            if response.status_code != 200:
+                raise HTTPException(status_code=502, detail="Could not list pages shared with NovaScan in Notion")
+            data = response.json()
+            for page in data.get("results", []):
+                properties = page.get("properties") or {}
+                title_parts = next((prop.get("title", []) for prop in properties.values() if prop.get("type") == "title"), page.get("title", []))
+                title = "".join(part.get("plain_text") or part.get("text", {}).get("content", "") for part in title_parts).strip()
+                if page.get("object") == "page":
+                    pages.append({"id": page.get("id"), "title": title or "Untitled page", "url": page.get("url")})
+            cursor = data.get("next_cursor")
+            if not data.get("has_more") or not cursor:
+                break
+    return {"pages": pages}
+
+
+@router.post("/notion/destination")
+async def save_notion_report_destination(
+    payload: NotionDestinationPayload,
+    project_id: str = Query(...),
+    current_user: User = Depends(get_current_user),
+):
+    _require_admin_or_manager(current_user)
+    await _validate_project_scope(current_user, project_id)
+    org_id = current_user.current_org_id
+    conn = await oauth_token_manager.get_connection(org_id, project_id, "notion")
+    token = await oauth_token_manager.refresh_notion_token_if_needed(org_id, project_id)
+    if not conn or not token:
+        raise HTTPException(status_code=409, detail="Connect Notion to this project before selecting an audit report page")
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.get(
+            f"https://api.notion.com/v1/pages/{quote(payload.page_id, safe='')}",
+            headers={"Authorization": f"Bearer {token}", "Notion-Version": "2022-06-28"},
+        )
+    if response.status_code != 200:
+        raise HTTPException(status_code=400, detail="That Notion page is not shared with this NovaScan connection")
+    page = response.json()
+    properties = page.get("properties") or {}
+    title_parts = next((prop.get("title", []) for prop in properties.values() if prop.get("type") == "title"), page.get("title", []))
+    page_title = "".join(part.get("plain_text") or part.get("text", {}).get("content", "") for part in title_parts).strip() or "Untitled page"
+    conn.update({"parent_page_id": page.get("id"), "parent_page_name": page_title, "parent_page_url": page.get("url")})
+    await oauth_token_manager.save_connection(org_id, project_id, "notion", conn)
+    await oauth_token_manager.apply_to_project(org_id, project_id, "notion")
+    return {"status": "success", "page": {"id": page.get("id"), "title": page_title, "url": page.get("url")}}
+
+
 # ---------- Provider GET callbacks (browser land here) ----------
 @router.get("/github/callback")
 async def github_callback_redirect(
@@ -463,6 +580,29 @@ async def jira_callback_redirect(code: Optional[str] = None, state: Optional[str
         return RedirectResponse(_frontend_result_url("error", "jira", str(e), _project_id_from_state(state), _return_to_from_state(state)), status_code=302)
 
 
+@router.get("/notion/callback")
+async def notion_callback_redirect(
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    error_description: Optional[str] = None,
+):
+    if error:
+        message = error_description or error
+        return RedirectResponse(_frontend_result_url("error", "notion", message, _project_id_from_state(state), _return_to_from_state(state)), status_code=302)
+    try:
+        result = await _exchange_notion(code, state)
+        return RedirectResponse(
+            _frontend_result_url("success", "notion", result["message"], result.get("project_id"), _return_to_from_state(state)),
+            status_code=302,
+        )
+    except HTTPException as e:
+        return RedirectResponse(_frontend_result_url("error", "notion", str(e.detail), _project_id_from_state(state), _return_to_from_state(state)), status_code=302)
+    except Exception as e:
+        logger.exception("Notion OAuth callback failed")
+        return RedirectResponse(_frontend_result_url("error", "notion", str(e), _project_id_from_state(state), _return_to_from_state(state)), status_code=302)
+
+
 # ---------- POST callbacks (frontend-hosted redirect URI fallback) ----------
 @router.post("/github/callback")
 async def handle_github_callback(payload: OAuthCallbackPayload):
@@ -486,7 +626,7 @@ async def disconnect_provider(
     current_user: User = Depends(get_current_user),
 ):
     _require_admin_or_manager(current_user)
-    if provider not in ("github", "slack", "jira"):
+    if provider not in ("github", "slack", "jira", "notion"):
         raise HTTPException(status_code=400, detail="Unsupported provider")
     await _validate_project_scope(current_user, project_id)
     deleted = await oauth_token_manager.delete_connection(current_user.current_org_id, project_id, provider)
@@ -498,6 +638,7 @@ async def disconnect_provider(
             "github": ("settings.github_access_token", "settings.github_login", "settings.github_repository"),
             "slack": ("settings.slack_bot_token", "settings.slack_channel", "settings.slack_team_id"),
             "jira": ("settings.jira_oauth_access_token", "settings.jira_refresh_token", "settings.jira_cloud_id", "settings.jira_api_token", "settings.jira_email"),
+            "notion": ("settings.notion_token", "settings.notion_database_id", "settings.notion_parent_page_id"),
         }[provider]
         if project:
             await db["projects"].update_one(
@@ -717,4 +858,50 @@ async def _exchange_jira(code: Optional[str], state: Optional[str]):
         "project_id": project_id,
         "message": f"Jira connected: {site_name}",
         **extra,
+    }
+
+
+async def _exchange_notion(code: Optional[str], state: Optional[str]):
+    claims = await _validated_callback_state(state, "notion")
+    if not (settings.NOTION_CLIENT_ID and settings.NOTION_CLIENT_SECRET):
+        raise HTTPException(status_code=503, detail="Notion OAuth is not fully configured on the server")
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing Notion authorization code")
+    basic = base64.b64encode(f"{settings.NOTION_CLIENT_ID}:{settings.NOTION_CLIENT_SECRET}".encode()).decode()
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(
+            "https://api.notion.com/v1/oauth/token",
+            headers={"Authorization": f"Basic {basic}", "Content-Type": "application/json", "Accept": "application/json"},
+            json={"grant_type": "authorization_code", "code": code, "redirect_uri": settings.notion_redirect},
+        )
+        token_data = response.json()
+    access_token = token_data.get("access_token")
+    if response.status_code != 200 or not access_token:
+        raise HTTPException(status_code=400, detail=f"Notion token exchange failed: {token_data.get('error_description') or token_data.get('error') or 'provider rejected the authorization code'}")
+    owner = token_data.get("owner") or {}
+    owner_user = owner.get("user") or {}
+    expires_in = token_data.get("expires_in")
+    org_id, project_id = claims["org_id"], claims["project_id"]
+    workspace_name = token_data.get("workspace_name") or "Notion workspace"
+    await oauth_token_manager.save_connection(org_id, project_id, "notion", {
+        "access_token": access_token,
+        "refresh_token": token_data.get("refresh_token"),
+        "token_type": token_data.get("token_type", "bearer"),
+        "expires_in": expires_in,
+        "access_token_expires_at": datetime.utcnow() + timedelta(seconds=int(expires_in)) if expires_in else None,
+        "workspace_id": token_data.get("workspace_id"),
+        "workspace_name": workspace_name,
+        "bot_id": token_data.get("bot_id"),
+        "owner_user_id": owner_user.get("id"),
+        "owner_user_name": owner_user.get("name"),
+        "owner_user_email": (owner_user.get("person") or {}).get("email"),
+        "mode": "notion_oauth",
+        "scope": "user-selected pages: read content, insert content",
+    })
+    return {
+        "status": "success",
+        "provider": "notion",
+        "workspace_name": workspace_name,
+        "project_id": project_id,
+        "message": f"Notion connected: {workspace_name}. Choose an audit reports page in project settings.",
     }

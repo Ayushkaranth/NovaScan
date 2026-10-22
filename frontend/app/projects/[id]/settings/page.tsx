@@ -16,6 +16,7 @@ import {
   PlugZap,
   Search,
   Save,
+  FileText,
   Slack,
   Trash2,
   Trello,
@@ -24,7 +25,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 
-type OAuthProvider = 'github' | 'slack' | 'jira';
+type OAuthProvider = 'github' | 'slack' | 'jira' | 'notion';
 type ProjectRecord = {
   _id: string;
   name: string;
@@ -35,16 +36,18 @@ type ProjectRecord = {
 };
 type Member = { _id: string; name?: string; full_name?: string; email?: string; role: string };
 type MemberSearchResponse = { members: Member[]; has_more?: boolean };
-type ProviderConnection = { status?: string; live?: boolean; workspace_name?: string; scope?: string; details?: { repository?: string } };
+type ProviderConnection = { status?: string; live?: boolean; workspace_name?: string; scope?: string; details?: { repository?: string; parent_page_id?: string; parent_page_name?: string; parent_page_url?: string } };
+type NotionPage = { id: string; title: string; url?: string };
 type OAuthStatus = {
   configured?: Partial<Record<OAuthProvider, boolean>>;
   connections?: Partial<Record<OAuthProvider, ProviderConnection>>;
 };
 
-const providers: { id: OAuthProvider; name: string; icon: typeof Github }[] = [
+const providers: { id: OAuthProvider; name: string; icon: any }[] = [
   { id: 'github', name: 'GitHub', icon: Github },
   { id: 'slack', name: 'Slack', icon: Slack },
   { id: 'jira', name: 'Jira', icon: Trello },
+  { id: 'notion', name: 'Notion Audit Reports', icon: FileText },
 ];
 
 export default function ProjectSettingsPage() {
@@ -55,6 +58,9 @@ export default function ProjectSettingsPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [form, setForm] = useState({ name: '', repo_owner: '', repo_name: '', manager_id: '', employee_ids: [] as string[] });
   const [oauth, setOauth] = useState<OAuthStatus>({});
+  const [notionPages, setNotionPages] = useState<NotionPage[]>([]);
+  const [notionPageSelection, setNotionPageSelection] = useState('');
+  const [notionPageLoading, setNotionPageLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeProvider, setActiveProvider] = useState<OAuthProvider | null>(null);
@@ -74,6 +80,22 @@ export default function ProjectSettingsPage() {
     try {
       const { data } = await api.get('/oauth/status', { params: { project_id: projectId, live: true } });
       setOauth(data);
+      if (data.connections?.notion?.status === 'connected') {
+        setNotionPageLoading(true);
+        try {
+          const pagesResponse = await api.get('/oauth/notion/pages', { params: { project_id: projectId } });
+          setNotionPages(pagesResponse.data.pages || []);
+          setNotionPageSelection(data.connections.notion.details?.parent_page_id || '');
+        } catch (pagesError: any) {
+          setNotionPages([]);
+          setError(pagesError.response?.data?.detail || 'Could not load pages shared with NovaScan in Notion. Check the Notion connection permissions.');
+        } finally {
+          setNotionPageLoading(false);
+        }
+      } else {
+        setNotionPages([]);
+        setNotionPageSelection('');
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Could not load this project’s tool connections.');
     }
@@ -215,6 +237,22 @@ export default function ProjectSettingsPage() {
       setNotice(`${providers.find((item) => item.id === provider)?.name || provider} disconnected from this project.`);
     } catch (err: any) {
       setError(err.response?.data?.detail || `Could not disconnect ${provider}.`);
+    } finally {
+      setActiveProvider(null);
+    }
+  };
+
+  const saveNotionDestination = async () => {
+    if (!notionPageSelection) return;
+    setActiveProvider('notion');
+    setError('');
+    try {
+      await api.post('/oauth/notion/destination', { page_id: notionPageSelection }, { params: { project_id: projectId } });
+      const selectedPage = notionPages.find((page) => page.id === notionPageSelection);
+      const message = `Notion audit reports will be created in ${selectedPage?.title || 'your selected page'}`;
+      router.push(`/projects/${encodeURIComponent(projectId)}?status=success&provider=notion&message=${encodeURIComponent(message)}`);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Could not save the Notion audit report page.');
     } finally {
       setActiveProvider(null);
     }
@@ -379,7 +417,7 @@ export default function ProjectSettingsPage() {
           </div>
           <button type="button" onClick={refreshOAuth} className="self-start rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50 sm:self-auto">Refresh status</button>
         </div>
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {providers.map(({ id, name, icon: Icon }) => {
             const connection = oauth.connections?.[id];
             const connected = connection?.status === 'connected';
@@ -389,14 +427,27 @@ export default function ProjectSettingsPage() {
               <article key={id} className="rounded-lg border border-border p-4">
                 <div className="flex items-center gap-3">
                   <div className="rounded-md bg-muted p-2"><Icon className="h-5 w-5" /></div>
-                  <div className="min-w-0"><h3 className="font-semibold">{name}</h3><p className="truncate text-xs text-muted-foreground">{connected ? (id === 'github' ? connection?.details?.repository || project.repo_owner + '/' + project.repo_name : connection?.workspace_name || 'Connected') : connection?.status === 'expired' ? 'Reconnect required' : 'Not connected'}</p></div>
+                  <div className="min-w-0"><h3 className="font-semibold">{name}</h3><p className="truncate text-xs text-muted-foreground">{connected ? (id === 'github' ? connection?.details?.repository || project.repo_owner + '/' + project.repo_name : id === 'notion' ? connection?.details?.parent_page_name || `${connection?.workspace_name || 'Connected'} · choose report page` : connection?.workspace_name || 'Connected') : connection?.status === 'expired' ? 'Reconnect required' : 'Not connected'}</p></div>
                   {connected && <CheckCircle2 className="ml-auto h-5 w-5 shrink-0 text-emerald-500" />}
                 </div>
                 <div className="mt-4">
                   {connected ? (
-                    <button type="button" onClick={() => disconnectProvider(id)} disabled={busy} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50 disabled:opacity-60">
-                      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unplug className="h-4 w-4" />} Disconnect
-                    </button>
+                    <div className="space-y-3">
+                      {id === 'notion' && <div className="space-y-2">
+                        <label className="block text-xs font-medium text-muted-foreground" htmlFor="notion-report-page">Audit report destination</label>
+                        <select id="notion-report-page" value={notionPageSelection} onChange={(event) => setNotionPageSelection(event.target.value)} disabled={notionPageLoading || busy || notionPages.length === 0} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground">
+                          <option value="">{notionPageLoading ? 'Loading shared pages…' : notionPages.length ? 'Choose a shared page' : 'No shared pages found'}</option>
+                          {notionPages.map((page) => <option key={page.id} value={page.id}>{page.title}</option>)}
+                        </select>
+                        <p className="text-xs text-muted-foreground">Choose a shared page such as “Audit Reports”. NovaScan creates one detailed report page for each medium or high risk event.</p>
+                        <button type="button" onClick={saveNotionDestination} disabled={!notionPageSelection || busy || notionPageSelection === connection?.details?.parent_page_id} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save report page
+                        </button>
+                      </div>}
+                      <button type="button" onClick={() => disconnectProvider(id)} disabled={busy} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50 disabled:opacity-60">
+                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unplug className="h-4 w-4" />} Disconnect
+                      </button>
+                    </div>
                   ) : (
                     <button type="button" onClick={() => connectProvider(id)} disabled={busy || !configured} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}{configured ? `Connect ${name}` : 'OAuth not configured'}

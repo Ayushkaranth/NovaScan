@@ -17,67 +17,103 @@ class NotionBot:
         }
 
     def _get_risk_label(self, score: int) -> str:
-        if score >= 8: return "Critical 🔴"
-        if score >= 6: return "High 🟠"
-        if score >= 4: return "Medium 🟡"
-        return "Low 🟢"
+        if score >= 8: return "Critical"
+        if score >= 6: return "High"
+        if score >= 4: return "Medium"
+        return "Low"
 
-    async def create_incident_report(self, analysis: dict, event_summary: str, pr_url: str, notion_token: str, database_id: str):
-        """
-        Creates a structured Post-Mortem page using USER-PROVIDED credentials.
-        """
-        if not notion_token or not database_id:
-            logger.warning("⚠️ Notion credentials missing for this organization. Skipping report.")
+    def _rich_text(self, text: Any) -> List[dict]:
+        content = str(text or "Not provided.")
+        return [{"type": "text", "text": {"content": content[index:index + 1900]}} for index in range(0, len(content), 1900)]
+
+    async def create_incident_report(
+        self,
+        analysis: dict,
+        event_summary: str,
+        pr_url: str,
+        notion_token: str,
+        database_id: Optional[str] = None,
+        parent_page_id: Optional[str] = None,
+        report_context: Optional[Dict[str, Any]] = None,
+    ):
+        """Create a detailed NovaScan audit page in a selected page or legacy database."""
+        if not notion_token or not (parent_page_id or database_id):
+            logger.warning("Notion credentials or report destination missing; skipping report")
             return None
 
-        risk_score = analysis.get("risk_score", 0)
-        
-        payload = {
-            "parent": {"database_id": database_id},
-            "properties": {
-                "Name": {"title": [{"text": {"content": f"NovaScan Alert: {event_summary}"}}]},
-                "Risk Level": {"select": {"name": self._get_risk_label(risk_score)}},
-                "Risk Score": {"number": risk_score},
-                "Status": {"status": {"name": "In Progress"}},
-                "Source PR": {"url": pr_url if pr_url.startswith("http") else "https://github.com"},
-                "Detected At": {"date": {"start": datetime.utcnow().isoformat()}}
-            },
-            "children": [
-                {
-                    "object": "block",
-                    "type": "callout",
-                    "callout": {
-                        "rich_text": [{"text": {"content": "Automated NovaScan Intelligence Report"}}],
-                        "icon": {"emoji": "🤖"},
-                        "color": "blue_background"
-                    }
+        analysis = analysis or {}
+        context = report_context or {}
+        risk_score = int(analysis.get("risk_score", 0) or 0)
+        title = f"NovaScan Audit: {event_summary}"[:1800]
+        created_at = datetime.utcnow().isoformat()
+        recommendations = analysis.get("recommendations") or analysis.get("action_needed") or "Review the flagged change with the project team."
+        if isinstance(recommendations, str):
+            recommendations = [recommendations]
+        elif not isinstance(recommendations, list):
+            recommendations = [str(recommendations)]
+
+        def heading(text: str, level: int = 2) -> dict:
+            key = f"heading_{level}"
+            return {"object": "block", "type": key, key: {"rich_text": self._rich_text(text)}}
+
+        def paragraphs(text: Any) -> List[dict]:
+            return [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": chunk}}
+                    for chunk in self._rich_text(text)]
+
+        children = [{
+            "object": "block", "type": "callout", "callout": {
+                "rich_text": self._rich_text(f"NovaScan risk audit | {self._get_risk_label(risk_score)} | Score {risk_score}/10"),
+                "icon": {"type": "emoji", "emoji": "\U0001F4CB"},
+                "color": "red_background" if risk_score >= 7 else "orange_background",
+            }
+        }, heading("Executive risk assessment"), *paragraphs(analysis.get("reason") or analysis.get("summary")), heading("Recommended actions")]
+        for item in recommendations:
+            children.append({"object": "block", "type": "bulleted_list_item", "bulleted_list_item": {"rich_text": self._rich_text(item)}})
+        for key, label in (("impact", "Potential impact"), ("affected_areas", "Affected areas"), ("evidence", "Evidence"), ("additional_recommendations", "Additional recommendations")):
+            value = analysis.get(key)
+            if value:
+                children.append(heading(label, 3))
+                for item in value if isinstance(value, list) else [value]:
+                    children.append({"object": "block", "type": "bulleted_list_item", "bulleted_list_item": {"rich_text": self._rich_text(item)}})
+        children.extend([
+            heading("Event details"),
+            *paragraphs(f"Repository: {context.get('repo') or 'Unknown'}"),
+            *paragraphs(f"Pull request: #{context.get('pr_id') or 'N/A'} | {context.get('title') or event_summary}"),
+            *paragraphs(f"Author: {context.get('author') or 'Unknown'}"),
+            *paragraphs(f"Detected at (UTC): {created_at}"),
+        ])
+        if isinstance(pr_url, str) and pr_url.startswith("http"):
+            children.append({"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": "Open source pull request", "link": {"url": pr_url}}}]}})
+
+        if parent_page_id:
+            payload = {
+                "parent": {"page_id": parent_page_id},
+                "properties": {"title": {"title": [{"type": "text", "text": {"content": title}}]}},
+                "children": children[:100],
+            }
+        else:
+            payload = {
+                "parent": {"database_id": database_id},
+                "properties": {
+                    "Name": {"title": [{"text": {"content": title}}]},
+                    "Risk Level": {"select": {"name": self._get_risk_label(risk_score)}},
+                    "Risk Score": {"number": risk_score},
+                    "Status": {"status": {"name": "In Progress"}},
+                    "Source PR": {"url": pr_url if isinstance(pr_url, str) and pr_url.startswith("http") else "https://github.com"},
+                    "Detected At": {"date": {"start": created_at}},
                 },
-                {
-                    "object": "block",
-                    "type": "heading_2",
-                    "heading_2": {"rich_text": [{"text": {"content": "🔍 Intelligence Summary"}}]}
-                },
-                {
-                    "object": "block",
-                    "type": "paragraph",
-                    "paragraph": {"rich_text": [{"text": {"content": analysis.get("reason", "No analysis available.")}}]}
-                }
-            ]
-        }
+                "children": children[:100],
+            }
 
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{self.base_url}/pages", 
-                    headers=self._get_headers(notion_token), 
-                    json=payload
-                )
-                if response.status_code != 200:
-                    logger.error(f"❌ Notion API Error: {response.text}")
+            async with httpx.AsyncClient(timeout=25.0) as client:
+                response = await client.post(f"{self.base_url}/pages", headers=self._get_headers(notion_token), json=payload)
+                if response.status_code not in (200, 201):
+                    logger.error("Notion audit page creation failed (%s): %s", response.status_code, response.text[:500])
                     return None
                 return response.json()
-        except Exception as e:
-            logger.error(f"❌ Notion Connection Error: {e}")
+        except Exception as exc:
+            logger.error("Notion audit page creation failed: %s", exc)
             return None
 
     async def create_meeting_mom_page(self, mom_data: Dict[str, Any], notion_token: str, database_id: str):
