@@ -231,8 +231,11 @@ pip install -r requirements.txt
 # Configure GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_PRIVATE_KEY,
 # GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET, and GITHUB_WEBHOOK_SECRET.
 # Set GITHUB_APP_PRIVATE_KEY with newlines preserved or represented as \\n.
-# In GitHub App settings, enable user authorization during installation and use
-# the callback URL above; enable a webhook at
+# In GitHub App settings, the callback URL above handles user authorization.
+# If user authorization during installation is disabled, set the Setup URL to
+# that same backend callback and enable Redirect on update so repository changes
+# return to NovaScan. The callback supports both install and setup redirects.
+# Enable a webhook at
 # https://api.example.com/api/v1/webhooks/github/app for pull_request events.
 # Grant only Metadata: read, Contents: read, and Pull requests: read.
 # Customers choose "Only select repositories" when installing the app. NovaScan

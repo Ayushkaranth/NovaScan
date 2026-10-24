@@ -1,5 +1,6 @@
 """GitHub App authentication helpers with repository-scoped installation tokens."""
 from datetime import datetime, timedelta, timezone
+import re
 from typing import Any, Dict
 from urllib.parse import quote
 
@@ -24,15 +25,41 @@ def github_app_configured() -> bool:
 def _app_jwt() -> str:
     if not (settings.GITHUB_APP_ID and settings.GITHUB_APP_PRIVATE_KEY):
         raise RuntimeError("GitHub App ID and private key are not configured")
-    private_key = settings.GITHUB_APP_PRIVATE_KEY.replace("\\n", "\n")
-    now = datetime.now(timezone.utc)
-    return jwt.encode(
-        {"iat": int((now - timedelta(seconds=30)).timestamp()),
-         "exp": int((now + timedelta(minutes=8)).timestamp()),
-         "iss": settings.GITHUB_APP_ID},
-        private_key,
-        algorithm="RS256",
+    private_key = str(settings.GITHUB_APP_PRIVATE_KEY).strip()
+    if len(private_key) >= 2 and private_key[0] == private_key[-1] and private_key[0] in ("\"", "'"):
+        private_key = private_key[1:-1].strip()
+    private_key = (
+        private_key
+        .replace("\\r\\n", "\n")
+        .replace("\\n", "\n")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
     )
+
+    # Render and other environment managers may preserve a pasted PEM as one
+    # long line. Canonicalize only a recognizable, unencrypted PEM block.
+    pem = re.search(r"-----BEGIN ((?:RSA |EC )?PRIVATE KEY)-----([\s\S]*?)-----END \1-----", private_key)
+    if pem:
+        body = re.sub(r"\s+", "", pem.group(2))
+        if body and re.fullmatch(r"[A-Za-z0-9+/=]+", body):
+            private_key = (
+                f"-----BEGIN {pem.group(1)}-----\n"
+                + "\n".join(body[index:index + 64] for index in range(0, len(body), 64))
+                + f"\n-----END {pem.group(1)}-----\n"
+            )
+    now = datetime.now(timezone.utc)
+    try:
+        return jwt.encode(
+            {"iat": int((now - timedelta(seconds=30)).timestamp()),
+             "exp": int((now + timedelta(minutes=8)).timestamp()),
+             "iss": settings.GITHUB_APP_ID},
+            private_key,
+            algorithm="RS256",
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "GitHub App private key is not valid PEM. In Render, replace GITHUB_APP_PRIVATE_KEY with the complete, unencrypted .pem file contents, including both BEGIN/END lines."
+        ) from exc
 
 
 async def create_repository_token(installation_id: str, repository_id: str) -> str:
