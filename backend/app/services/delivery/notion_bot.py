@@ -35,6 +35,7 @@ class NotionBot:
         database_id: Optional[str] = None,
         parent_page_id: Optional[str] = None,
         report_context: Optional[Dict[str, Any]] = None,
+        database_status_type: str = "status",
     ):
         """Create a detailed NovaScan audit page in a selected page or legacy database."""
         if not notion_token or not (parent_page_id or database_id):
@@ -98,7 +99,7 @@ class NotionBot:
                     "Name": {"title": [{"text": {"content": title}}]},
                     "Risk Level": {"select": {"name": self._get_risk_label(risk_score)}},
                     "Risk Score": {"number": risk_score},
-                    "Status": {"status": {"name": "In Progress"}},
+                    "Status": ({"select": {"name": "In progress"}} if database_status_type == "select" else {"status": {"name": "In Progress"}}),
                     "Source PR": {"url": pr_url if isinstance(pr_url, str) and pr_url.startswith("http") else "https://github.com"},
                     "Detected At": {"date": {"start": created_at}},
                 },

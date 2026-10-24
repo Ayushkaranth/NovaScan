@@ -1,6 +1,7 @@
 """GitHub App authentication helpers with repository-scoped installation tokens."""
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
+from urllib.parse import quote
 
 import httpx
 from jose import jwt
@@ -136,3 +137,90 @@ async def authorize_installation(installation_id: str, code: str, expected_repo:
             "repository_full_name": matching.get("full_name"),
             "account_name": (matching.get("owner") or {}).get("login"),
         }
+
+
+async def verify_installation_repository(installation_id: str, expected_repo: str) -> Dict[str, Any]:
+    """Verify a GitHub setup callback using app credentials (no OAuth code required)."""
+    headers = {
+        "Authorization": f"Bearer {_app_jwt()}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        installation_response = await client.get(
+            f"https://api.github.com/app/installations/{installation_id}", headers=headers
+        )
+        if installation_response.status_code != 200:
+            raise RuntimeError("Could not verify this GitHub App installation")
+        installation = installation_response.json()
+        if installation.get("repository_selection") != "selected":
+            raise RuntimeError('Install the app with "Only select repositories" to connect a project repository')
+
+        token_response = await client.post(
+            f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+            headers=headers,
+            json={"permissions": {"contents": "read", "pull_requests": "read"}},
+        )
+        if token_response.status_code != 201:
+            raise RuntimeError("Could not inspect repositories granted to this GitHub installation")
+        installation_token = token_response.json().get("token")
+        if not installation_token:
+            raise RuntimeError("GitHub did not return an installation token")
+
+        repo_headers = {
+            "Authorization": f"Bearer {installation_token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        repositories = []
+        page = 1
+        while True:
+            repositories_response = await client.get(
+                "https://api.github.com/installation/repositories",
+                headers=repo_headers,
+                params={"per_page": 100, "page": page},
+            )
+            if repositories_response.status_code != 200:
+                raise RuntimeError("Could not verify repositories granted to this GitHub installation")
+            batch = repositories_response.json().get("repositories", [])
+            repositories.extend(batch)
+            if len(batch) < 100:
+                break
+            page += 1
+
+    matching = next(
+        (repo for repo in repositories if (repo.get("full_name") or "").casefold() == expected_repo.casefold()),
+        None,
+    )
+    if not matching:
+        raise RuntimeError(f"This installation does not have access to {expected_repo}. Select that repository in GitHub and retry.")
+    account = installation.get("account") or {}
+    return {
+        "installation_id": str(installation_id),
+        "login": account.get("login") or "GitHub account",
+        "account_name": account.get("login") or "GitHub account",
+        "repository_id": str(matching["id"]),
+        "repository_full_name": matching.get("full_name"),
+    }
+
+
+async def find_repository_installation(expected_repo: str) -> str:
+    """Resolve the GitHub App installation for the repository in signed OAuth state."""
+    owner, separator, name = expected_repo.partition("/")
+    if not separator or not owner or not name:
+        raise RuntimeError("The project repository is not configured as owner/repository")
+    headers = {
+        "Authorization": f"Bearer {_app_jwt()}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.get(
+            f"https://api.github.com/repos/{quote(owner, safe='')}/{quote(name, safe='')}/installation", headers=headers
+        )
+    if response.status_code != 200:
+        raise RuntimeError(f"NovaScan is not installed for {expected_repo}; install the GitHub App and select this repository")
+    installation_id = response.json().get("id")
+    if not installation_id:
+        raise RuntimeError("GitHub did not return an installation ID for this repository")
+    return str(installation_id)

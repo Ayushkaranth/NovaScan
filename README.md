@@ -245,9 +245,10 @@ pip install -r requirements.txt
 # JIRA_CLIENT_ID/JIRA_CLIENT_SECRET.
 # Configure NOTION_CLIENT_ID and NOTION_CLIENT_SECRET for the Notion public
 # connection. Add the Notion callback URL above to its OAuth redirect URIs and
-# enable Read content and Insert content capabilities. Users choose the pages
-# NovaScan can access during consent, then select the audit report parent page
-# in the project settings.
+# enable Read content and Insert content capabilities. During consent, users
+# choose which pages NovaScan can access. NovaScan creates a separate per-project
+# issues tracker under the first shared page; users do not choose a destination
+# again in project settings.
 # Optional *_REDIRECT_URI values override the callback URL defaults above.
 # Keep all secrets server-side; never add them to NEXT_PUBLIC_* variables.
 # OAuth connections are authorized and managed from each project's page.

@@ -15,7 +15,7 @@ from app.models.user import User
 from app.api.v1.endpoints.auth import get_current_user
 from app.services.integration.oauth_token_manager import oauth_token_manager
 from app.services.integration.github_webhooks import ensure_github_webhook
-from app.services.integration.github_app import github_app_configured, authorize_installation, create_repository_token
+from app.services.integration.github_app import github_app_configured, authorize_installation, verify_installation_repository, find_repository_installation, create_repository_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -31,10 +31,6 @@ class OAuthCallbackPayload(BaseModel):
     org_id: Optional[str] = None
     installation_id: Optional[str] = None
     provider: Optional[str] = None
-
-
-class NotionDestinationPayload(BaseModel):
-    page_id: str
 
 
 def _frontend_result_url(
@@ -173,7 +169,7 @@ async def _live_check(provider: str, conn: Dict[str, Any]) -> Dict[str, Any]:
     summary["scope"] = conn.get("scope")
     summary["details"] = {
         k: conn.get(k)
-        for k in ("team_id", "cloud_id", "login", "site_url", "channel", "channel_id", "workspace_id", "parent_page_id", "parent_page_name", "parent_page_url")
+        for k in ("team_id", "cloud_id", "login", "site_url", "channel", "channel_id", "workspace_id", "database_id", "database_name", "database_url", "database_status_type")
         if conn.get(k)
     }
 
@@ -249,7 +245,7 @@ async def _live_check(provider: str, conn: Dict[str, Any]) -> Dict[str, Any]:
                     summary["workspace_name"] = conn.get("workspace_name") or "Notion workspace"
                     summary["details"].update({
                         key: conn.get(key)
-                        for key in ("workspace_id", "parent_page_id", "parent_page_name", "parent_page_url")
+                        for key in ("workspace_id", "database_id", "database_name", "database_url", "database_status_type")
                         if conn.get(key)
                     })
     except Exception as e:
@@ -459,8 +455,8 @@ async def get_notion_auth_url(
     }
 
 
-@router.get("/notion/pages")
-async def get_notion_report_pages(
+@router.post("/notion/provision")
+async def provision_notion_audit_tracker(
     project_id: str = Query(...),
     current_user: User = Depends(get_current_user),
 ):
@@ -468,59 +464,93 @@ async def get_notion_report_pages(
     await _validate_project_scope(current_user, project_id)
     token = await oauth_token_manager.refresh_notion_token_if_needed(current_user.current_org_id, project_id)
     if not token:
-        raise HTTPException(status_code=409, detail="Connect Notion to this project before choosing an audit report page")
-    headers = {"Authorization": f"Bearer {token}", "Notion-Version": "2022-06-28", "Content-Type": "application/json"}
-    pages = []
-    cursor = None
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        for _ in range(5):
-            body: Dict[str, Any] = {"page_size": 100, "filter": {"property": "object", "value": "page"}}
-            if cursor:
-                body["start_cursor"] = cursor
-            response = await client.post("https://api.notion.com/v1/search", headers=headers, json=body)
-            if response.status_code != 200:
-                raise HTTPException(status_code=502, detail="Could not list pages shared with NovaScan in Notion")
-            data = response.json()
-            for page in data.get("results", []):
-                properties = page.get("properties") or {}
-                title_parts = next((prop.get("title", []) for prop in properties.values() if prop.get("type") == "title"), page.get("title", []))
-                title = "".join(part.get("plain_text") or part.get("text", {}).get("content", "") for part in title_parts).strip()
-                if page.get("object") == "page":
-                    pages.append({"id": page.get("id"), "title": title or "Untitled page", "url": page.get("url")})
-            cursor = data.get("next_cursor")
-            if not data.get("has_more") or not cursor:
-                break
-    return {"pages": pages}
+        raise HTTPException(status_code=409, detail="Connect Notion to this project first")
+    return await _ensure_notion_audit_database(current_user.current_org_id, project_id, token)
 
 
-@router.post("/notion/destination")
-async def save_notion_report_destination(
-    payload: NotionDestinationPayload,
-    project_id: str = Query(...),
-    current_user: User = Depends(get_current_user),
-):
-    _require_admin_or_manager(current_user)
-    await _validate_project_scope(current_user, project_id)
-    org_id = current_user.current_org_id
+async def _ensure_notion_audit_database(org_id: str, project_id: str, token: str) -> Dict[str, Any]:
+    """Create one issues-tracker database under the first page shared in OAuth."""
     conn = await oauth_token_manager.get_connection(org_id, project_id, "notion")
-    token = await oauth_token_manager.refresh_notion_token_if_needed(org_id, project_id)
-    if not conn or not token:
-        raise HTTPException(status_code=409, detail="Connect Notion to this project before selecting an audit report page")
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.get(
-            f"https://api.notion.com/v1/pages/{quote(payload.page_id, safe='')}",
-            headers={"Authorization": f"Bearer {token}", "Notion-Version": "2022-06-28"},
+    if not conn:
+        raise HTTPException(status_code=409, detail="Connect Notion to this project first")
+    if conn.get("database_id"):
+        return {
+            "status": "success",
+            "database": {
+                "id": conn.get("database_id"),
+                "name": conn.get("database_name") or "NovaScan Issues Tracker",
+                "url": conn.get("database_url"),
+            },
+        }
+
+    db = get_database()
+    from app.services.integration.oauth_token_manager import _find_project
+    project = await _find_project(db, project_id) if db is not None else None
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    project_name = project.get("name") or "Project"
+    database_name = f"NovaScan Issues Tracker — {project_name}"[:100]
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=25.0) as client:
+        search = await client.post(
+            "https://api.notion.com/v1/search",
+            headers=headers,
+            json={"page_size": 100, "filter": {"property": "object", "value": "page"}},
         )
-    if response.status_code != 200:
-        raise HTTPException(status_code=400, detail="That Notion page is not shared with this NovaScan connection")
-    page = response.json()
-    properties = page.get("properties") or {}
-    title_parts = next((prop.get("title", []) for prop in properties.values() if prop.get("type") == "title"), page.get("title", []))
-    page_title = "".join(part.get("plain_text") or part.get("text", {}).get("content", "") for part in title_parts).strip() or "Untitled page"
-    conn.update({"parent_page_id": page.get("id"), "parent_page_name": page_title, "parent_page_url": page.get("url")})
+        if search.status_code != 200:
+            logger.error("Notion shared-page lookup failed (%s): %s", search.status_code, search.text[:500])
+            raise HTTPException(status_code=502, detail="Could not find a Notion page shared with NovaScan")
+        pages = [item for item in search.json().get("results", []) if item.get("object") == "page" and item.get("id")]
+        if not pages:
+            raise HTTPException(
+                status_code=409,
+                detail="No Notion page is shared with NovaScan. Reconnect Notion and share one page in Notion’s authorization page picker; NovaScan will create its own tracker there.",
+            )
+
+        parent_page = pages[0]
+        create = await client.post(
+            "https://api.notion.com/v1/databases",
+            headers=headers,
+            json={
+                "parent": {"type": "page_id", "page_id": parent_page["id"]},
+                "title": [{"type": "text", "text": {"content": database_name}}],
+                "properties": {
+                    "Name": {"title": {}},
+                    "Risk Level": {"select": {"options": [{"name": "Low"}, {"name": "Medium"}, {"name": "High"}, {"name": "Critical"}]}},
+                    "Risk Score": {"number": {"format": "number"}},
+                    "Status": {"select": {"options": [{"name": "In progress"}, {"name": "Done"}]}},
+                    "Source PR": {"url": {}},
+                    "Detected At": {"date": {}},
+                },
+            },
+        )
+    if create.status_code not in (200, 201):
+        logger.error("Notion audit tracker creation failed (%s): %s", create.status_code, create.text[:500])
+        raise HTTPException(status_code=502, detail="Notion is connected, but NovaScan could not create the audit tracker. Confirm Insert content is enabled and reconnect.")
+
+    created = create.json()
+    conn.update({
+        "database_id": created.get("id"),
+        "database_name": database_name,
+        "database_url": created.get("url"),
+        "database_status_type": "select",
+        "notion_parent_page_id": parent_page["id"],
+        "notion_parent_page_name": _notion_page_title(parent_page) or "Shared Notion page",
+    })
     await oauth_token_manager.save_connection(org_id, project_id, "notion", conn)
     await oauth_token_manager.apply_to_project(org_id, project_id, "notion")
-    return {"status": "success", "page": {"id": page.get("id"), "title": page_title, "url": page.get("url")}}
+    return {"status": "success", "database": {"id": created.get("id"), "name": database_name, "url": created.get("url")}}
+
+
+def _notion_page_title(page: Dict[str, Any]) -> str:
+    properties = page.get("properties") or {}
+    title_parts = next((prop.get("title", []) for prop in properties.values() if prop.get("type") == "title"), page.get("title", []))
+    return "".join(part.get("plain_text") or part.get("text", {}).get("content", "") for part in title_parts).strip()
 
 
 # ---------- Provider GET callbacks (browser land here) ----------
@@ -530,10 +560,19 @@ async def github_callback_redirect(
     state: Optional[str] = None,
     error: Optional[str] = None,
     installation_id: Optional[str] = None,
+    setup_action: Optional[str] = None,
 ):
     if error:
         return RedirectResponse(_frontend_result_url("error", "github", error, _project_id_from_state(state), _return_to_from_state(state)), status_code=302)
     try:
+        if setup_action == "request" and not installation_id and not code:
+            return RedirectResponse(
+                _frontend_result_url(
+                    "pending", "github", "GitHub installation request submitted; an organization owner must approve it.",
+                    _project_id_from_state(state), _return_to_from_state(state),
+                ),
+                status_code=302,
+            )
         result = await _exchange_github_for_state(code=code, state=state, installation_id=installation_id)
         return RedirectResponse(
             _frontend_result_url("success", "github", result["message"], result.get("project_id"), _return_to_from_state(state)),
@@ -656,11 +695,6 @@ async def _exchange_github_app(code: Optional[str], state: Optional[str], instal
     project_id = claims.get("project_id")
     if not github_app_configured():
         raise HTTPException(status_code=503, detail="GitHub App is not fully configured on the server")
-    if not code or not installation_id:
-        raise HTTPException(
-            status_code=400,
-            detail="GitHub did not complete the app installation and user authorization. Enable user authorization during installation in the GitHub App settings.",
-        )
     db = get_database()
     from app.services.integration.oauth_token_manager import _find_project
     project = await _find_project(db, project_id)
@@ -668,7 +702,18 @@ async def _exchange_github_app(code: Optional[str], state: Optional[str], instal
         raise HTTPException(status_code=404, detail="Project not found")
     expected_repo = f"{project.get('repo_owner', '').strip()}/{project.get('repo_name', '').strip()}"
     try:
-        verified = await authorize_installation(installation_id, code, expected_repo)
+        # Some GitHub App callbacks omit installation_id. Resolve it from the
+        # repository in our signed OAuth state instead of sending the user away.
+        if not installation_id:
+            installation_id = await find_repository_installation(expected_repo)
+        # GitHub can return either the OAuth callback (with a code) or the App
+        # setup callback (installation_id + setup_action). Support both so an
+        # install always returns to the project even when OAuth-on-install is off.
+        verified = (
+            await authorize_installation(installation_id, code, expected_repo)
+            if code
+            else await verify_installation_repository(installation_id, expected_repo)
+        )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     login = verified["login"]
@@ -883,6 +928,17 @@ async def _exchange_notion(code: Optional[str], state: Optional[str]):
     expires_in = token_data.get("expires_in")
     org_id, project_id = claims["org_id"], claims["project_id"]
     workspace_name = token_data.get("workspace_name") or "Notion workspace"
+    previous = await oauth_token_manager.get_connection(org_id, project_id, "notion")
+    new_workspace_id = token_data.get("workspace_id")
+    if previous and previous.get("workspace_id") and new_workspace_id and previous.get("workspace_id") != new_workspace_id:
+        # A project switched Notion workspaces; never leave its old workspace's
+        # tracker ID active alongside the new workspace token.
+        await oauth_token_manager.delete_connection(org_id, project_id, "notion")
+        db = get_database()
+        from app.services.integration.oauth_token_manager import _find_project
+        project = await _find_project(db, project_id) if db is not None else None
+        if project:
+            await db["projects"].update_one({"_id": project["_id"]}, {"$unset": {"settings.notion_database_id": ""}})
     await oauth_token_manager.save_connection(org_id, project_id, "notion", {
         "access_token": access_token,
         "refresh_token": token_data.get("refresh_token"),
@@ -898,10 +954,16 @@ async def _exchange_notion(code: Optional[str], state: Optional[str]):
         "mode": "notion_oauth",
         "scope": "user-selected pages: read content, insert content",
     })
+    try:
+        tracker = await _ensure_notion_audit_database(org_id, project_id, access_token)
+        tracker_note = f" Audit tracker created: {tracker['database']['name']}."
+    except HTTPException as exc:
+        logger.warning("Notion connected but tracker provisioning is pending: %s", exc.detail)
+        tracker_note = f" Tracker setup is pending: {exc.detail}"
     return {
         "status": "success",
         "provider": "notion",
         "workspace_name": workspace_name,
         "project_id": project_id,
-        "message": f"Notion connected: {workspace_name}. Choose an audit reports page in project settings.",
+        "message": f"Notion connected: {workspace_name}.{tracker_note}",
     }

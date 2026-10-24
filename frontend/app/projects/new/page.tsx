@@ -311,7 +311,7 @@ export default function MasterOnboarding() {
               </h3>
 
               <div className="rounded-lg border border-border bg-muted/30 p-5 space-y-4">
-                <p className="text-sm text-muted-foreground">Each project has its own connections. GitHub uses the NovaScan GitHub App for this repository. Slack and Jira connect to the workspace or site you choose. Notion publishes audit reports for medium and high risk events after you select the report page in project settings.</p>
+                <p className="text-sm text-muted-foreground">Each project has its own connections. GitHub uses the NovaScan GitHub App for this repository. Slack and Jira connect to the workspace or site you choose. Notion creates a separate issues tracker for medium and high risk reports.</p>
                 {oauthNotice && <p role="status" className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm text-primary">{oauthNotice}</p>}
                 <div className="grid gap-3 sm:grid-cols-3">
                   {providers.map(({ id, name, icon: Icon }) => {

@@ -27,7 +27,7 @@ import {
 type OAuthProvider = 'github' | 'slack' | 'jira' | 'notion';
 type ProjectIntegrationStatus = {
   configured?: Partial<Record<OAuthProvider, boolean>>;
-  connections?: Partial<Record<OAuthProvider, { status?: string; workspace_name?: string; scope?: string; connected_at?: string; details?: { repository?: string; parent_page_name?: string } }>>;
+  connections?: Partial<Record<OAuthProvider, { status?: string; workspace_name?: string; scope?: string; connected_at?: string; details?: { repository?: string; database_name?: string; database_url?: string } }>>;
 };
 
 const integrationProviders: { id: OAuthProvider; name: string; icon: any }[] = [
@@ -104,7 +104,7 @@ export default function ProjectDashboard() {
     setIntegrationError('');
     try {
       const { data } = await api.get(`/oauth/${provider}/authorize`, {
-        params: { project_id: projectId, ...(provider === 'notion' ? { return_to: 'settings' } : {}) },
+        params: { project_id: projectId, return_to: 'project' },
       });
       if (!data.auth_url) throw new Error('The server did not return an authorization URL.');
       window.location.assign(data.auth_url);
@@ -169,7 +169,7 @@ export default function ProjectDashboard() {
       </div>
 
       {(searchParams.get('status') || searchParams.get('message')) && (
-        <div className={`max-w-6xl mx-auto mb-6 rounded-lg border p-4 text-sm ${searchParams.get('status') === 'success' ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300' : 'border-destructive/30 bg-destructive/5 text-destructive'}`} role="status">
+        <div className={`max-w-6xl mx-auto mb-6 rounded-lg border p-4 text-sm ${searchParams.get('status') === 'success' ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300' : searchParams.get('status') === 'pending' ? 'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300' : 'border-destructive/30 bg-destructive/5 text-destructive'}`} role="status">
           {searchParams.get('message') || `OAuth ${searchParams.get('status')}`}
         </div>
       )}
@@ -218,15 +218,18 @@ export default function ProjectDashboard() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Icon className="h-5 w-5" /></div>
-                    <div><h3 className="font-semibold">{name}</h3><p className="mt-0.5 text-xs text-muted-foreground">{integrationsLoading ? 'Checking connection…' : connected ? (id === 'github' ? connection?.details?.repository || connection?.workspace_name || 'Connected' : id === 'notion' ? connection?.details?.parent_page_name || `${connection?.workspace_name || 'Connected'} · choose report page in settings` : connection?.workspace_name || 'Connected') : connection?.status === 'expired' ? 'Reconnect required' : 'Not connected'}</p></div>
+                  <div><h3 className="font-semibold">{name}</h3><p className="mt-0.5 text-xs text-muted-foreground">{integrationsLoading ? 'Checking connection…' : connected ? (id === 'github' ? connection?.details?.repository || connection?.workspace_name || 'Connected' : id === 'notion' ? connection?.details?.database_name || `${connection?.workspace_name || 'Connected'} · tracker setup needed in settings` : connection?.workspace_name || 'Connected') : connection?.status === 'expired' ? 'Reconnect required' : 'Not connected'}</p></div>
                   </div>
                   {connected && <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />}
                 </div>
                 <div className="mt-5 flex gap-2">
                   {connected ? (
-                    <button type="button" onClick={() => disconnectIntegration(id)} disabled={busy} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-60">
-                      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unplug className="h-4 w-4" />} Disconnect
-                    </button>
+                    <>
+                      {id === 'notion' && connection?.details?.database_url && <a href={connection?.details?.database_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50">Open tracker</a>}
+                      <button type="button" onClick={() => disconnectIntegration(id)} disabled={busy} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-60">
+                        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unplug className="h-4 w-4" />} Disconnect
+                      </button>
+                    </>
                   ) : (
                     <button type="button" onClick={() => connectIntegration(id)} disabled={busy || integrationsLoading || !configured} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}{configured ? `Connect ${name}` : 'OAuth not configured'}

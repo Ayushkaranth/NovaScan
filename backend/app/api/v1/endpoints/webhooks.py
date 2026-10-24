@@ -74,7 +74,7 @@ async def get_org_credentials(org_id: str, repo_full_name: str = None, project_i
             "jira_token": settings_data.get("jira_api_token"),
             "jira_project_key": settings_data.get("jira_project_key", "SCRUM"),
             "notion_token": oauth_credentials.get("notion_token") or settings_data.get("notion_token"),
-            "notion_database_id": settings_data.get("notion_database_id"),
+            "notion_database_id": oauth_credentials.get("notion_database_id") if oauth_credentials.get("notion_oauth_connected") else settings_data.get("notion_database_id"),
             "notion_parent_page_id": oauth_credentials.get("notion_parent_page_id") or settings_data.get("notion_parent_page_id"),
             "notion_parent_page_name": oauth_credentials.get("notion_parent_page_name"),
             "notion_parent_page_url": oauth_credentials.get("notion_parent_page_url")
@@ -271,6 +271,7 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
             database_id=creds.get("notion_database_id"),
             parent_page_id=creds.get("notion_parent_page_id"),
             report_context=event_data,
+            database_status_type=creds.get("notion_database_status_type") or "status",
         )
         if notion_res:
             notion_url = notion_res.get("url")

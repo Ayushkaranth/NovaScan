@@ -44,7 +44,7 @@ def _public_summary(data: Dict[str, Any]) -> Dict[str, Any]:
         "scope": data.get("scope", "read-only"),
         "details": {
             key: data.get(key)
-            for key in ("team_id", "cloud_id", "login", "site_url", "channel", "channel_id", "repository", "repository_id", "workspace_id", "parent_page_id", "parent_page_name", "parent_page_url")
+            for key in ("team_id", "cloud_id", "login", "site_url", "channel", "channel_id", "repository", "repository_id", "workspace_id", "database_id", "database_name", "database_url", "database_status_type", "parent_page_id", "parent_page_name", "parent_page_url")
             if data.get(key)
         } | ({"repository": data.get("repository_full_name"), "repository_id": data.get("repository_id")} if data.get("repository_full_name") else {}),
     }
@@ -187,8 +187,8 @@ class OAuthTokenManager:
                 if conn.get("site_url"):
                     set_fields["settings.jira_url"] = conn.get("site_url")
                 applied.append(name)
-            elif name == "notion" and conn.get("access_token") and conn.get("parent_page_id"):
-                set_fields["settings.notion_parent_page_id"] = conn.get("parent_page_id")
+            elif name == "notion" and conn.get("access_token") and conn.get("database_id"):
+                set_fields["settings.notion_database_id"] = conn.get("database_id")
                 applied.append(name)
 
         if set_fields:
@@ -221,12 +221,17 @@ class OAuthTokenManager:
         await self.refresh_notion_token_if_needed(org_id, project_id)
         notion = await self.get_connection(org_id, project_id, "notion")
         if notion:
+            out["notion_oauth_connected"] = True
             out["notion_token"] = notion.get("access_token")
             out["notion_refresh_token"] = notion.get("refresh_token")
             out["notion_parent_page_id"] = notion.get("parent_page_id")
             out["notion_parent_page_name"] = notion.get("parent_page_name")
             out["notion_parent_page_url"] = notion.get("parent_page_url")
             out["notion_workspace_id"] = notion.get("workspace_id")
+            out["notion_database_id"] = notion.get("database_id")
+            out["notion_database_name"] = notion.get("database_name")
+            out["notion_database_url"] = notion.get("database_url")
+            out["notion_database_status_type"] = notion.get("database_status_type")
         return out
 
     async def refresh_jira_token_if_needed(self, org_id: str, project_id: str) -> Optional[str]:
