@@ -326,6 +326,7 @@ async def get_organization_members(
     role_lists = (
         ("admin", org.get("admin_ids", [])),
         ("manager", org.get("manager_ids", [])),
+        ("hr", org.get("hr_ids", [])),
         ("employee", org.get("employee_ids", [])),
     )
     role_by_id = {}
@@ -337,6 +338,20 @@ async def get_organization_members(
             raw_member_ids.append(member_id)
             if ObjectId.is_valid(key):
                 raw_member_ids.append(ObjectId(key))
+
+    # Some organization records predate dedicated HR role lists. Include HR
+    # users attached directly through current_org_id so admins can assign them
+    # as cross-team observers without losing older organization records.
+    org_id_values = [str(org["_id"])]
+    if ObjectId.is_valid(str(org["_id"])):
+        org_id_values.append(ObjectId(str(org["_id"])))
+    hr_users = await db["users"].find(
+        {"current_org_id": {"$in": org_id_values}, "role": "hr"}, {"_id": 1}
+    ).to_list(length=limit)
+    for hr_user in hr_users:
+        member_id = str(hr_user.get("_id"))
+        role_by_id[member_id] = "hr"
+        raw_member_ids.append(hr_user["_id"])
 
     # MongoDB distinguishes a string ID from an ObjectId with the same text.
     # Keep both forms in the query; deduplicating by str(value) silently

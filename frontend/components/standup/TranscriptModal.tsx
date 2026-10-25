@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 
 interface TranscriptModalProps {
-    projectId: string
+    teamId: string
     isOpen: boolean
     onClose: () => void
     onSuccess: () => void
@@ -23,7 +23,7 @@ interface AnalysisResult {
     summary: string
 }
 
-export function TranscriptModal({ projectId, isOpen, onClose, onSuccess }: TranscriptModalProps) {
+export function TranscriptModal({ teamId, isOpen, onClose, onSuccess }: TranscriptModalProps) {
     const [transcript, setTranscript] = useState("")
     const [isAnalyzing, setIsAnalyzing] = useState(false)
     const [isExecuting, setIsExecuting] = useState(false)
@@ -35,7 +35,7 @@ export function TranscriptModal({ projectId, isOpen, onClose, onSuccess }: Trans
         if (!transcript.trim()) return
         setIsAnalyzing(true)
         try {
-            const response = await api.post(`/standup/${projectId}/analyze`, {
+            const response = await api.post(`/standup/teams/${teamId}/analyze`, {
                 transcript
             })
             setResult(response.data)
@@ -51,7 +51,7 @@ export function TranscriptModal({ projectId, isOpen, onClose, onSuccess }: Trans
         if (!result) return
         setIsExecuting(true)
         try {
-            await api.post(`/standup/${projectId}/execute`, result)
+            await api.post(`/standup/teams/${teamId}/execute`, result)
             onSuccess()
             onClose()
         } catch (error) {
@@ -107,7 +107,7 @@ export function TranscriptModal({ projectId, isOpen, onClose, onSuccess }: Trans
                                 {/* Proposed Tasks */}
                                 <div className="space-y-3">
                                     <h3 className="font-semibold text-lg flex items-center gap-2">
-                                        <Badge variant="outline">Tasks</Badge> Proposed Jira Tickets
+                                    <Badge variant="outline">Tasks</Badge> Proposed follow-up actions
                                     </h3>
                                     <div className="space-y-2">
                                         {result.tasks.map((task, i) => (
@@ -160,7 +160,7 @@ export function TranscriptModal({ projectId, isOpen, onClose, onSuccess }: Trans
                             {/* Summary Preview */}
                             <div className="space-y-3">
                                 <h3 className="font-semibold text-lg flex items-center gap-2">
-                                    <Badge variant="secondary">Summary</Badge> Slack Message Preview
+                                <Badge variant="secondary">Summary</Badge> Standup notes preview
                                 </h3>
                                 <div className="p-4 rounded-md border bg-muted/20 text-sm whitespace-pre-wrap font-mono h-[150px] overflow-y-auto">
                                     {result.summary}

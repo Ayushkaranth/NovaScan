@@ -44,6 +44,12 @@ NovaScan solves this by correlating **GitHub code diffs**, **Google Meet transcr
 
 ## 🚀 Key Features
 
+### Team-Based Daily Standups
+- Organization admins and HR create teams and assign a manager plus employees. Managers and employees belong to one team; admins and HR may participate across teams.
+- Team managers, admins, and HR can connect a Google Calendar account, create a recurring standup with a Google Meet link, and invite the team roster.
+- Review transcript analysis, task follow-ups, blockers, calendar events, and standup history from the team dashboard. Meet transcript import is an explicit sync action after Google generates a transcript.
+- Configure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_CALENDAR_REDIRECT_URI` in the backend. Register the exact callback URI `https://<backend-host>/api/v1/standup/google/callback` in the Google OAuth client and enable Google Calendar API and Google Meet REST API in the associated Cloud project. For local development, register `http://localhost:8000/api/v1/standup/google/callback` as a separate redirect URI.
+
 ### 🧠 Contextual AI Risk & Intent Analysis
 - **Intent-Aware Code Scoring**: Analyzes GitHub Pull Request diffs alongside Slack chat history and meeting agreements to distinguish between emergency hotfixes and genuine security regressions.
 - **False Positive Elimination**: Reduces alert fatigue by understanding developer discussions prior to deployment.

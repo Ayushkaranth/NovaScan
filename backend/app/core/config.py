@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     NOTION_CLIENT_SECRET: Optional[str] = None
     NOTION_REDIRECT_URI: Optional[str] = None
 
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_CALENDAR_REDIRECT_URI: Optional[str] = None
+
+    @property
+    def google_calendar_redirect(self) -> str:
+        return self.GOOGLE_CALENDAR_REDIRECT_URI or f"{self.BASE_URL.rstrip('/')}/api/v1/standup/google/callback"
+
     @property
     def github_redirect(self) -> str:
         return self.GITHUB_REDIRECT_URI or f"{self.BASE_URL.rstrip('/')}/api/v1/oauth/github/callback"

@@ -79,6 +79,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             active={pathname.includes("/dashboard/team")}
           />
           <NavItem
+            href="/dashboard/teams"
+            icon={<Users className="w-4 h-4" />}
+            label="Teams"
+            active={pathname === "/dashboard/teams"}
+          />
+          <NavItem
             href="/dashboard/standup"
             icon={<ListChecks className="w-4 h-4" />}
             label="Standups"
@@ -155,6 +161,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <NavItem href="/dashboard/projects" icon={<LayoutGrid className="w-4 h-4" />} label="Projects" active={pathname.includes("/projects")} />
             <NavItem href="/dashboard/risks" icon={<ShieldAlert className="w-4 h-4" />} label="Risk Feed" active={pathname.includes("/risks")} />
             <NavItem href="/dashboard/standup" icon={<ListChecks className="w-4 h-4" />} label="Standups" active={pathname.includes("/standup")} />
+            <NavItem href="/dashboard/teams" icon={<Users className="w-4 h-4" />} label="Teams" active={pathname === "/dashboard/teams"} />
             <NavItem href="/dashboard/profile" icon={<UserRound className="w-4 h-4" />} label="My Profile" active={pathname === "/dashboard/profile"} />
             <NavItem href="/dashboard/settings" icon={<Settings className="w-4 h-4" />} label="Settings" active={pathname === "/dashboard/settings"} />
             <Button
