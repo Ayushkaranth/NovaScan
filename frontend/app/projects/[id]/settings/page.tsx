@@ -226,7 +226,7 @@ export default function ProjectSettingsPage() {
     setError('');
     try {
       const { data } = await api.post('/oauth/notion/provision', null, { params: { project_id: projectId } });
-      const message = `Notion audit tracker is now inline in the shared page: ${data.database?.name || 'NovaScan Issues Tracker'}`;
+      const message = `Your shared Notion page is now named ${data.database?.name || 'NovaScan Issues Tracker'} and contains the audit table.`;
       router.push(`/projects/${encodeURIComponent(projectId)}?status=success&provider=notion&message=${encodeURIComponent(message)}`);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Could not create the Notion audit tracker.');
@@ -412,9 +412,9 @@ export default function ProjectSettingsPage() {
                     <div className="space-y-3">
                       {id === 'notion' && <div className="space-y-2">
                         {connection?.details?.database_url && <a href={connection?.details?.database_url} target="_blank" rel="noopener noreferrer" className="block text-sm font-medium text-primary hover:underline">Open {connection?.details?.database_name || 'NovaScan Issues Tracker'} in Notion</a>}
-                        <p className="text-xs text-muted-foreground">The audit table is embedded directly in the shared parent page. Existing full-page trackers can be converted here; new trackers are created inline.</p>
+                        <p className="text-xs text-muted-foreground">NovaScan names the page you shared for this project and embeds the risk, score, status, source PR, and detection-date table inside it.</p>
                         <button type="button" onClick={createNotionTracker} disabled={busy} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
-                            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Place tracker inline in this page
+                            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Set up this page as the project tracker
                           </button>
                       </div>}
                       <button type="button" onClick={() => disconnectProvider(id)} disabled={busy} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50 disabled:opacity-60">

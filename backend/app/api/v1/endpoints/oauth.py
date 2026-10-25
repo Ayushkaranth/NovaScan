@@ -490,6 +490,34 @@ async def _ensure_notion_audit_database(org_id: str, project_id: str, token: str
         if inline_response.status_code not in (200, 201):
             logger.error("Notion tracker inline conversion failed (%s): %s", inline_response.status_code, inline_response.text[:500])
             raise HTTPException(status_code=502, detail="Notion is connected, but NovaScan could not place the tracker inline in the shared page. Confirm the integration has insert and update content access, then retry.")
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            database_title_response = await client.patch(
+                f"https://api.notion.com/v1/databases/{conn['database_id']}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Notion-Version": "2022-06-28",
+                    "Content-Type": "application/json",
+                },
+                json={"title": [{"type": "text", "text": {"content": "Audit Reports"}}]},
+            )
+        if database_title_response.status_code not in (200, 201):
+            logger.error("Notion tracker title update failed (%s): %s", database_title_response.status_code, database_title_response.text[:500])
+            raise HTTPException(status_code=502, detail="Notion connected, but NovaScan could not update the audit table title. Confirm update-content access and retry.")
+        tracker_page_name = conn.get("database_name") or "NovaScan Issues Tracker"
+        parent_page_id = conn.get("notion_parent_page_id") or conn.get("parent_page_id")
+        if not parent_page_id:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                database_response = await client.get(
+                    f"https://api.notion.com/v1/databases/{conn['database_id']}",
+                    headers={"Authorization": f"Bearer {token}", "Notion-Version": "2022-06-28"},
+                )
+            if database_response.status_code == 200:
+                parent_page_id = (database_response.json().get("parent") or {}).get("page_id")
+        if parent_page_id:
+            await _rename_notion_parent_page(token, parent_page_id, tracker_page_name)
+            conn["notion_parent_page_id"] = parent_page_id
+            conn["notion_parent_page_name"] = tracker_page_name
+            await oauth_token_manager.save_connection(org_id, project_id, "notion", conn)
         return {
             "status": "success",
             "database": {
@@ -535,7 +563,7 @@ async def _ensure_notion_audit_database(org_id: str, project_id: str, token: str
             headers=headers,
             json={
                 "parent": {"type": "page_id", "page_id": parent_page["id"]},
-                "title": [{"type": "text", "text": {"content": database_name}}],
+                "title": [{"type": "text", "text": {"content": "Audit Reports"}}],
                 "is_inline": True,
                 "properties": {
                     "Name": {"title": {}},
@@ -552,15 +580,17 @@ async def _ensure_notion_audit_database(org_id: str, project_id: str, token: str
         raise HTTPException(status_code=502, detail="Notion is connected, but NovaScan could not create the audit tracker. Confirm Insert content is enabled and reconnect.")
 
     created = create.json()
+    parent_page_name = database_name
     conn.update({
         "database_id": created.get("id"),
         "database_name": database_name,
         "database_url": created.get("url"),
         "database_status_type": "select",
         "notion_parent_page_id": parent_page["id"],
-        "notion_parent_page_name": _notion_page_title(parent_page) or "Shared Notion page",
+        "notion_parent_page_name": parent_page_name,
     })
     await oauth_token_manager.save_connection(org_id, project_id, "notion", conn)
+    await _rename_notion_parent_page(token, parent_page["id"], parent_page_name)
     await oauth_token_manager.apply_to_project(org_id, project_id, "notion")
     return {"status": "success", "database": {"id": created.get("id"), "name": database_name, "url": created.get("url"), "is_inline": True}}
 
@@ -569,6 +599,30 @@ def _notion_page_title(page: Dict[str, Any]) -> str:
     properties = page.get("properties") or {}
     title_parts = next((prop.get("title", []) for prop in properties.values() if prop.get("type") == "title"), page.get("title", []))
     return "".join(part.get("plain_text") or part.get("text", {}).get("content", "") for part in title_parts).strip()
+
+
+async def _rename_notion_parent_page(token: str, page_id: str, title: str) -> None:
+    """Name the user-provided page as the project tracker and keep its table inside it."""
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        page_response = await client.get(f"https://api.notion.com/v1/pages/{page_id}", headers=headers)
+        if page_response.status_code != 200:
+            logger.error("Notion tracker parent lookup failed (%s): %s", page_response.status_code, page_response.text[:500])
+            raise HTTPException(status_code=502, detail="Notion tracker was created, but NovaScan could not rename the shared parent page. Confirm update-content access and retry.")
+        properties = page_response.json().get("properties") or {}
+        title_property = next((key for key, value in properties.items() if value.get("type") == "title"), "title")
+        rename_response = await client.patch(
+            f"https://api.notion.com/v1/pages/{page_id}",
+            headers=headers,
+            json={"properties": {title_property: {"title": [{"type": "text", "text": {"content": title}}]}}},
+        )
+    if rename_response.status_code not in (200, 201):
+        logger.error("Notion tracker parent rename failed (%s): %s", rename_response.status_code, rename_response.text[:500])
+        raise HTTPException(status_code=502, detail="Notion tracker was created, but NovaScan could not rename the shared parent page. Confirm update-content access and retry.")
 
 
 # ---------- Provider GET callbacks (browser land here) ----------
