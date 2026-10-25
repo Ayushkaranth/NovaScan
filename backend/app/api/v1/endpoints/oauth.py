@@ -469,17 +469,34 @@ async def provision_notion_audit_tracker(
 
 
 async def _ensure_notion_audit_database(org_id: str, project_id: str, token: str) -> Dict[str, Any]:
-    """Create one issues-tracker database under the first page shared in OAuth."""
+    """Create or convert the project tracker to an inline table in its parent page."""
     conn = await oauth_token_manager.get_connection(org_id, project_id, "notion")
     if not conn:
         raise HTTPException(status_code=409, detail="Connect Notion to this project first")
     if conn.get("database_id"):
+        # Existing installations may have created a full-page child database.
+        # Convert it to an inline table so the tracker content appears directly
+        # in the page the user shared with NovaScan.
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            inline_response = await client.patch(
+                f"https://api.notion.com/v1/databases/{conn['database_id']}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Notion-Version": "2022-06-28",
+                    "Content-Type": "application/json",
+                },
+                json={"is_inline": True},
+            )
+        if inline_response.status_code not in (200, 201):
+            logger.error("Notion tracker inline conversion failed (%s): %s", inline_response.status_code, inline_response.text[:500])
+            raise HTTPException(status_code=502, detail="Notion is connected, but NovaScan could not place the tracker inline in the shared page. Confirm the integration has insert and update content access, then retry.")
         return {
             "status": "success",
             "database": {
                 "id": conn.get("database_id"),
                 "name": conn.get("database_name") or "NovaScan Issues Tracker",
                 "url": conn.get("database_url"),
+                "is_inline": True,
             },
         }
 
@@ -519,6 +536,7 @@ async def _ensure_notion_audit_database(org_id: str, project_id: str, token: str
             json={
                 "parent": {"type": "page_id", "page_id": parent_page["id"]},
                 "title": [{"type": "text", "text": {"content": database_name}}],
+                "is_inline": True,
                 "properties": {
                     "Name": {"title": {}},
                     "Risk Level": {"select": {"options": [{"name": "Low"}, {"name": "Medium"}, {"name": "High"}, {"name": "Critical"}]}},
@@ -544,7 +562,7 @@ async def _ensure_notion_audit_database(org_id: str, project_id: str, token: str
     })
     await oauth_token_manager.save_connection(org_id, project_id, "notion", conn)
     await oauth_token_manager.apply_to_project(org_id, project_id, "notion")
-    return {"status": "success", "database": {"id": created.get("id"), "name": database_name, "url": created.get("url")}}
+    return {"status": "success", "database": {"id": created.get("id"), "name": database_name, "url": created.get("url"), "is_inline": True}}
 
 
 def _notion_page_title(page: Dict[str, Any]) -> str:
