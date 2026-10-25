@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     GITHUB_APP_ID: Optional[str] = None
     GITHUB_APP_SLUG: Optional[str] = None
     GITHUB_APP_PRIVATE_KEY: Optional[str] = None
+    # Optional single-line alternative for hosts that mangle multiline PEM env vars.
+    GITHUB_APP_PRIVATE_KEY_BASE64: Optional[str] = None
     GITHUB_APP_CLIENT_ID: Optional[str] = None
     GITHUB_APP_CLIENT_SECRET: Optional[str] = None
     GITHUB_WEBHOOK_SECRET: Optional[str] = None

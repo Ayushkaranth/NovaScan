@@ -1,5 +1,7 @@
 """GitHub App authentication helpers with repository-scoped installation tokens."""
 from datetime import datetime, timedelta, timezone
+import base64
+import binascii
 import re
 from typing import Any, Dict
 from urllib.parse import quote
@@ -15,7 +17,7 @@ def github_app_configured() -> bool:
     return bool(
         getattr(settings, "GITHUB_APP_ID", None)
         and getattr(settings, "GITHUB_APP_SLUG", None)
-        and getattr(settings, "GITHUB_APP_PRIVATE_KEY", None)
+        and (getattr(settings, "GITHUB_APP_PRIVATE_KEY_BASE64", None) or getattr(settings, "GITHUB_APP_PRIVATE_KEY", None))
         and getattr(settings, "GITHUB_APP_CLIENT_ID", None)
         and getattr(settings, "GITHUB_APP_CLIENT_SECRET", None)
         and getattr(settings, "GITHUB_WEBHOOK_SECRET", None)
@@ -23,9 +25,17 @@ def github_app_configured() -> bool:
 
 
 def _app_jwt() -> str:
-    if not (settings.GITHUB_APP_ID and settings.GITHUB_APP_PRIVATE_KEY):
+    encoded_key = getattr(settings, "GITHUB_APP_PRIVATE_KEY_BASE64", None)
+    raw_key = getattr(settings, "GITHUB_APP_PRIVATE_KEY", None)
+    if not (settings.GITHUB_APP_ID and (encoded_key or raw_key)):
         raise RuntimeError("GitHub App ID and private key are not configured")
-    private_key = str(settings.GITHUB_APP_PRIVATE_KEY).strip()
+    if encoded_key:
+        try:
+            private_key = base64.b64decode(re.sub(r"\s+", "", str(encoded_key)), validate=True).decode("utf-8-sig")
+        except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
+            raise RuntimeError("GITHUB_APP_PRIVATE_KEY_BASE64 must be Base64-encoded UTF-8 PEM file contents") from exc
+    else:
+        private_key = str(raw_key).strip()
     if len(private_key) >= 2 and private_key[0] == private_key[-1] and private_key[0] in ("\"", "'"):
         private_key = private_key[1:-1].strip()
     private_key = (
