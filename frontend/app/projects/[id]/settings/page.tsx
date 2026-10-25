@@ -36,7 +36,7 @@ type ProjectRecord = {
 };
 type Member = { _id: string; name?: string; full_name?: string; email?: string; role: string };
 type MemberSearchResponse = { members: Member[]; has_more?: boolean };
-type ProviderConnection = { status?: string; live?: boolean; workspace_name?: string; scope?: string; details?: { repository?: string; database_id?: string; database_name?: string; database_url?: string } };
+type ProviderConnection = { status?: string; live?: boolean; workspace_name?: string; scope?: string; details?: { repository?: string; database_id?: string; database_name?: string; database_url?: string; parent_page_url?: string } };
 type OAuthStatus = {
   configured?: Partial<Record<OAuthProvider, boolean>>;
   connections?: Partial<Record<OAuthProvider, ProviderConnection>>;
@@ -411,7 +411,7 @@ export default function ProjectSettingsPage() {
                   {connected ? (
                     <div className="space-y-3">
                       {id === 'notion' && <div className="space-y-2">
-                        {connection?.details?.database_url && <a href={connection?.details?.database_url} target="_blank" rel="noopener noreferrer" className="block text-sm font-medium text-primary hover:underline">Open {connection?.details?.database_name || 'NovaScan Issues Tracker'} in Notion</a>}
+                        {(connection?.details?.parent_page_url || connection?.details?.database_url) && <a href={connection?.details?.parent_page_url || connection?.details?.database_url} target="_blank" rel="noopener noreferrer" className="block text-sm font-medium text-primary hover:underline">Open {connection?.details?.database_name || 'NovaScan Audit'} page in Notion</a>}
                         <p className="text-xs text-muted-foreground">NovaScan names the page you shared for this project and embeds the risk, score, status, source PR, and detection-date table inside it.</p>
                         <button type="button" onClick={createNotionTracker} disabled={busy} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
                             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Set up this page as the project tracker

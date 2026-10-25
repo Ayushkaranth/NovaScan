@@ -27,7 +27,7 @@ import {
 type OAuthProvider = 'github' | 'slack' | 'jira' | 'notion';
 type ProjectIntegrationStatus = {
   configured?: Partial<Record<OAuthProvider, boolean>>;
-  connections?: Partial<Record<OAuthProvider, { status?: string; workspace_name?: string; scope?: string; connected_at?: string; details?: { repository?: string; database_name?: string; database_url?: string } }>>;
+  connections?: Partial<Record<OAuthProvider, { status?: string; workspace_name?: string; scope?: string; connected_at?: string; details?: { repository?: string; database_name?: string; database_url?: string; parent_page_url?: string } }>>;
 };
 
 const integrationProviders: { id: OAuthProvider; name: string; icon: any }[] = [
@@ -225,7 +225,7 @@ export default function ProjectDashboard() {
                 <div className="mt-5 flex gap-2">
                   {connected ? (
                     <>
-                      {id === 'notion' && connection?.details?.database_url && <a href={connection?.details?.database_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50">Open tracker</a>}
+                      {id === 'notion' && (connection?.details?.parent_page_url || connection?.details?.database_url) && <a href={connection?.details?.parent_page_url || connection?.details?.database_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50">Open tracker page</a>}
                       <button type="button" onClick={() => disconnectIntegration(id)} disabled={busy} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-60">
                         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unplug className="h-4 w-4" />} Disconnect
                       </button>
