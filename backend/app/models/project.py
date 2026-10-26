@@ -24,6 +24,7 @@ class ProjectCreateRequest(BaseModel):
     # Team (Sent as IDs)
     manager_id: str
     employee_ids: List[str] = []
+    team_id: Optional[str] = None
 
 # --- 2. Database Model (Structured) ---
 class ProjectIntegrations(BaseModel):

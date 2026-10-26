@@ -196,7 +196,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 }
 
 // Helper for Sidebar Links
-function NavItem({ href, icon, label, active }: { href: string, icon: any, label: string, active: boolean }) {
+function NavItem({ href, icon, label, active }: { href: string, icon: React.ReactNode, label: string, active: boolean }) {
   return (
     <Link href={href}>
       <div className={cn(

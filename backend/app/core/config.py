@@ -56,7 +56,7 @@ class Settings(BaseSettings):
 
     @property
     def google_calendar_redirect(self) -> str:
-        return self.GOOGLE_CALENDAR_REDIRECT_URI or f"{self.BASE_URL.rstrip('/')}/api/v1/standup/google/callback"
+        return self.GOOGLE_CALENDAR_REDIRECT_URI or "https://novascan-backend.onrender.com/api/v1/standup/google/callback"
 
     @property
     def github_redirect(self) -> str:

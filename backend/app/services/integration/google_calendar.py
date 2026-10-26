@@ -137,7 +137,6 @@ async def access_token(org_id: str, user_id: str) -> str:
         raise ValueError("Google Calendar authorization expired. Reconnect your account.")
     tokens = response.json()
     refreshed = {
-        **connection,
         "access_token": encrypt_key(tokens["access_token"]),
         "refresh_token": encrypt_key(connection["refresh_token"]),
         "expires_at": datetime.utcnow() + timedelta(seconds=int(tokens.get("expires_in", 3600))),
@@ -294,7 +293,8 @@ async def fetch_meet_transcripts(org_id: str, organizer_id: str, meet_url: str, 
             logger.warning("Meet conference lookup failed (%s): %s", conference_response.status_code, conference_response.text[:500])
             raise ValueError("Google Meet transcripts are unavailable. Confirm Meet API access and transcript permissions.")
         results = []
-        for conference in conference_response.json().get("conferenceRecords", []):
+        conferences = conference_response.json().get("conferenceRecords", [])
+        for conference in conferences:
             conference_name = conference.get("name")
             if not conference_name:
                 continue

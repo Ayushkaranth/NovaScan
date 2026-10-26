@@ -10,12 +10,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type Member = { _id: string; name: string; email: string; role: string; profile_image?: string; teams?: string[] };
-type Team = { _id: string; name: string; description?: string; manager_id: string; member_ids: string[]; standup_schedule?: any };
+type Team = { _id: string; name: string; description?: string; manager_id: string; member_ids: string[]; standup_schedule?: { local_time?: string; timezone?: string } };
+type CurrentUser = { role?: string };
 
 export default function TeamsPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -45,8 +46,9 @@ export default function TeamsPage() {
       setTeams(teamRes.data || []);
       setMembers(rosterRes.data?.members || []);
       setUser(userRes.data);
-    } catch (e: any) {
-      setError(e.response?.data?.detail || "Could not load organization teams.");
+    } catch (e: unknown) {
+      const message = e && typeof e === "object" && "response" in e ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail : undefined;
+      setError(message || "Could not load organization teams.");
     } finally {
       setLoading(false);
     }
@@ -64,8 +66,9 @@ export default function TeamsPage() {
       await api.post("/teams", { name, description, manager_id: managerId, member_ids: memberIds });
       setName(""); setDescription(""); setManagerId(""); setMemberIds([]); setQuery("");
       await load();
-    } catch (e: any) {
-      setError(e.response?.data?.detail || "Could not create this team.");
+    } catch (e: unknown) {
+      const message = e && typeof e === "object" && "response" in e ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail : undefined;
+      setError(message || "Could not create this team.");
     } finally {
       setSaving(false);
     }
@@ -76,8 +79,9 @@ export default function TeamsPage() {
     try {
       await api.delete(`/teams/${teamId}`);
       await load();
-    } catch (e: any) {
-      setError(e.response?.data?.detail || "Could not delete the team.");
+    } catch (e: unknown) {
+      const message = e && typeof e === "object" && "response" in e ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail : undefined;
+      setError(message || "Could not delete the team.");
     }
   };
 
@@ -86,7 +90,7 @@ export default function TeamsPage() {
   const saveTeam = async (teamId: string) => {
     setSaving(true); setError("");
     try { await api.put(`/teams/${teamId}`, { manager_id: editManagerId, member_ids: editMemberIds }); setEditingId(""); await load(); }
-    catch (e: any) { setError(e.response?.data?.detail || "Could not update team membership."); }
+    catch (e: unknown) { const message = e && typeof e === "object" && "response" in e ? (e as { response?: { data?: { detail?: string } } }).response?.data?.detail : undefined; setError(message || "Could not update team membership."); }
     finally { setSaving(false); }
   };
 

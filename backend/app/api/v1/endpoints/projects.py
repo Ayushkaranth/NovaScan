@@ -87,6 +87,7 @@ class ProjectUpdate(BaseModel):
     repo_name: Optional[str] = None
     manager_id: Optional[str] = None
     employee_ids: Optional[List[str]] = None
+    team_id: Optional[str] = None
 
 
 @router.put("/{project_id}")
@@ -121,6 +122,22 @@ async def update_project(
         requested_ids = {str(member_id) for member_id in (update_data.get("employee_ids") or [])}
         if not requested_ids.issubset(current_ids):
             raise HTTPException(status_code=403, detail="Project managers cannot add team members")
+
+    if "team_id" in update_data:
+        team_id = update_data.get("team_id")
+        if team_id:
+            id_values = [str(team_id)]
+            if ObjectId.is_valid(str(team_id)):
+                id_values.append(ObjectId(str(team_id)))
+            org_values = [str(current_user.current_org_id)]
+            if ObjectId.is_valid(str(current_user.current_org_id)):
+                org_values.append(ObjectId(str(current_user.current_org_id)))
+            team = await db["teams"].find_one({"_id": {"$in": id_values}, "organization_id": {"$in": org_values}})
+            if not team:
+                raise HTTPException(status_code=400, detail="Select a team from this organization")
+            update_data["team_id"] = str(team["_id"])
+        else:
+            update_data["team_id"] = None
 
     for field in ("name", "repo_owner", "repo_name"):
         if field in update_data:

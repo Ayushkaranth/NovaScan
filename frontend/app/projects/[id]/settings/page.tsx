@@ -33,6 +33,7 @@ type ProjectRecord = {
   repo_name: string;
   manager_id?: string;
   employee_ids?: string[];
+  team_id?: string | null;
 };
 type Member = { _id: string; name?: string; full_name?: string; email?: string; role: string };
 type MemberSearchResponse = { members: Member[]; has_more?: boolean };
@@ -55,7 +56,8 @@ export default function ProjectSettingsPage() {
   const projectId = String(params.id || '');
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
-  const [form, setForm] = useState({ name: '', repo_owner: '', repo_name: '', manager_id: '', employee_ids: [] as string[] });
+  const [form, setForm] = useState({ name: '', repo_owner: '', repo_name: '', manager_id: '', employee_ids: [] as string[], team_id: '' });
+  const [teams, setTeams] = useState<{ _id: string; name: string }[]>([]);
   const [oauth, setOauth] = useState<OAuthStatus>({});
   const [notionTrackerLoading, setNotionTrackerLoading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -94,18 +96,20 @@ export default function ProjectSettingsPage() {
     const load = async () => {
       setLoading(true);
       try {
-        const [projectResponse, membersResponse] = await Promise.all([
+        const [projectResponse, membersResponse, teamsResponse] = await Promise.all([
           api.get(`/projects/${encodeURIComponent(projectId)}`),
           api.get('/organizations/members/list'),
+          api.get('/teams'),
         ]);
         const projectData = projectResponse.data as ProjectRecord;
+        setTeams(teamsResponse.data || []);
         let organizationMembers: Member[] = membersResponse.data.members || [];
         const assignedIds = (projectData.employee_ids || []).map(String);
         if (assignedIds.length) {
           const assignedResponse = await api.get('/organizations/members/list', { params: { member_ids: assignedIds.join(','), limit: assignedIds.length } });
           const merged = new Map(organizationMembers.map((member) => [String(member._id), member]));
           (assignedResponse.data.members || []).forEach((member: Member) => merged.set(String(member._id), member));
-          organizationMembers = [...merged.values()];
+          organizationMembers = Array.from(merged.values());
         }
         setProject(projectData);
         setMembers(organizationMembers);
@@ -115,6 +119,7 @@ export default function ProjectSettingsPage() {
           repo_name: projectData.repo_name || '',
           manager_id: projectData.manager_id || '',
           employee_ids: projectData.employee_ids || [],
+          team_id: projectData.team_id || '',
         });
       } catch (err: any) {
         setError(err.response?.data?.detail || 'Could not load this project.');
@@ -161,7 +166,7 @@ export default function ProjectSettingsPage() {
     setError('');
     setNotice('');
     try {
-      const payload = userRole === 'manager' ? { employee_ids: form.employee_ids } : form;
+      const payload = userRole === 'manager' ? { employee_ids: form.employee_ids } : { ...form, team_id: form.team_id || null };
       await api.put(`/projects/${encodeURIComponent(projectId)}`, payload);
       setProject((current) => current ? { ...current, ...form } : current);
       setNotice('Project settings saved.');
@@ -257,7 +262,7 @@ export default function ProjectSettingsPage() {
   const loggedInMember = (member: Member) =>
     (userId && String(member._id) === String(userId)) ||
     (userEmail && String(member.email || '').toLowerCase() === userEmail);
-  const currentTeam = [...new Set(form.employee_ids.map(String))]
+  const currentTeam: Member[] = Array.from(new Set(form.employee_ids.map(String)))
     .filter((id) => id !== String(userId || ''))
     .map((id) => members.find((member) => String(member._id) === id) || { _id: id, name: 'Organization member', email: '', role: '' })
     .filter((member) => !loggedInMember(member));
@@ -317,6 +322,14 @@ export default function ProjectSettingsPage() {
               <option value="" disabled>Select a manager</option>
               {managers.map((member) => <option key={member._id} value={member._id}>{member.name || member.full_name || member.email} ({member.role})</option>)}
             </select>
+          </label>
+          <label className="block space-y-1.5 text-sm font-medium">
+            <span>Associated standup team <span className="font-normal text-muted-foreground">(optional)</span></span>
+            <select disabled={!canManageProject || !teams.length} value={form.team_id} onChange={(event) => setForm({ ...form, team_id: event.target.value })} className="w-full rounded-md border border-input bg-background px-3 py-2 text-foreground disabled:opacity-60">
+              <option value="">No team linked</option>
+              {teams.map((team) => <option key={team._id} value={team._id}>{team.name}</option>)}
+            </select>
+            <span className="block text-xs font-normal text-muted-foreground">Links this project to a team for context in standup workflows.</span>
           </label>
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">

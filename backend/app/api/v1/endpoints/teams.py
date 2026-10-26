@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta
 from typing import List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.api.v1.endpoints.auth import get_current_user
 from app.core.database import get_database
@@ -42,6 +43,10 @@ def _can_manage_members(user: User) -> bool:
     return user.role in ("admin", "hr")
 
 
+def _same_org(user: dict, org_id: str) -> bool:
+    return str(user.get("current_org_id")) == str(org_id)
+
+
 def _can_view_team(user: User, team: dict) -> bool:
     return user.role in ("admin", "hr") or str(team.get("manager_id")) == str(user.id) or str(user.id) in {str(value) for value in team.get("member_ids", [])}
 
@@ -51,7 +56,7 @@ async def _validate_team_members(db, org_id: str, manager_id: str, member_ids: L
     org_values = _id_values(org_id)
     for user_id in normalized:
         user = await _find_user(db, user_id)
-        if not user or str(user.get("current_org_id")) != str(org_id):
+        if not user or not _same_org(user, org_id):
             raise HTTPException(status_code=400, detail="Every team member must belong to this organization")
         role = (user.get("role") or "employee").lower()
         if user_id == str(manager_id) and role != "manager":
@@ -78,6 +83,10 @@ class TeamUpdate(BaseModel):
     description: Optional[str] = Field(default=None, max_length=500)
     manager_id: Optional[str] = None
     member_ids: Optional[List[str]] = None
+
+
+class TaskStatusUpdate(BaseModel):
+    status: str
 
 
 @router.get("")
@@ -140,6 +149,8 @@ async def get_team(team_id: str, current_user: User = Depends(get_current_user))
 async def update_team(team_id: str, payload: TeamUpdate, current_user: User = Depends(get_current_user)):
     if not _can_manage_members(current_user):
         raise HTTPException(status_code=403, detail="Only admins and HR can update team membership")
+    if not current_user.current_org_id:
+        raise HTTPException(status_code=400, detail="Join an organization before managing teams")
     db = get_database()
     team = await _find_team(db, current_user.current_org_id, team_id)
     if not team:
@@ -168,6 +179,8 @@ async def update_team(team_id: str, payload: TeamUpdate, current_user: User = De
 async def delete_team(team_id: str, current_user: User = Depends(get_current_user)):
     if not _can_manage_members(current_user):
         raise HTTPException(status_code=403, detail="Only admins and HR can delete teams")
+    if not current_user.current_org_id:
+        raise HTTPException(status_code=400, detail="Join an organization before managing teams")
     db = get_database()
     team = await _find_team(db, current_user.current_org_id, team_id)
     if not team:
@@ -189,6 +202,15 @@ class StandupSchedule(BaseModel):
     duration_minutes: int = Field(default=15, ge=5, le=180)
     timezone: str = "Asia/Kolkata"
 
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value):
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, TypeError) as exc:
+            raise ValueError("Choose a valid timezone, such as Asia/Kolkata") from exc
+        return value
+
 
 def _can_schedule(user: User, team: dict) -> bool:
     return user.role in ("admin", "hr") or (user.role == "manager" and str(team.get("manager_id")) == str(user.id))
@@ -196,20 +218,26 @@ def _can_schedule(user: User, team: dict) -> bool:
 
 @router.get("/{team_id}/schedule")
 async def get_team_schedule(team_id: str, current_user: User = Depends(get_current_user)):
+    if not current_user.current_org_id:
+        raise HTTPException(status_code=400, detail="No organization found")
     db = get_database()
     team = await _find_team(db, current_user.current_org_id, team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     if not _can_view_team(current_user, team):
         raise HTTPException(status_code=403, detail="You are not a member of this team")
-    schedule = team.get("standup_schedule")
+    schedule = dict(team.get("standup_schedule") or {})
     if schedule:
-        schedule["connected"] = bool(await google_calendar.get_connection(current_user.current_org_id, schedule.get("organizer_id", "")))
-    return schedule
+        connection = await google_calendar.get_connection(current_user.current_org_id, schedule.get("organizer_id", ""))
+        schedule["connected"] = bool(connection)
+        schedule["organizer_email"] = (connection or {}).get("email") or schedule.get("organizer_email")
+    return schedule or None
 
 
 @router.put("/{team_id}/schedule")
 async def set_team_schedule(team_id: str, payload: StandupSchedule, current_user: User = Depends(get_current_user)):
+    if not current_user.current_org_id:
+        raise HTTPException(status_code=400, detail="Join an organization before scheduling a standup")
     db = get_database()
     team = await _find_team(db, current_user.current_org_id, team_id)
     if not team:
@@ -271,6 +299,8 @@ async def set_team_schedule(team_id: str, payload: StandupSchedule, current_user
 
 @router.delete("/{team_id}/schedule")
 async def clear_team_schedule(team_id: str, current_user: User = Depends(get_current_user)):
+    if not current_user.current_org_id:
+        raise HTTPException(status_code=400, detail="Join an organization before managing schedules")
     db = get_database()
     team = await _find_team(db, current_user.current_org_id, team_id)
     if not team:
@@ -289,6 +319,8 @@ async def clear_team_schedule(team_id: str, current_user: User = Depends(get_cur
 
 @router.get("/{team_id}/calendar")
 async def get_team_calendar(team_id: str, current_user: User = Depends(get_current_user)):
+    if not current_user.current_org_id:
+        raise HTTPException(status_code=400, detail="No organization found")
     db = get_database()
     team = await _find_team(db, current_user.current_org_id, team_id)
     if not team:
@@ -306,7 +338,7 @@ async def get_team_calendar(team_id: str, current_user: User = Depends(get_curre
             )
             event_id = schedule.get("google_event_id")
             matches = [event for event in events if event.get("id") == event_id or event.get("recurringEventId") == event_id]
-            return [{
+            mapped = [{
                 "id": event.get("id"), "title": event.get("summary") or team.get("name"),
                 "start_time": (event.get("start") or {}).get("dateTime") or (event.get("start") or {}).get("date"),
                 "end_time": (event.get("end") or {}).get("dateTime") or (event.get("end") or {}).get("date"),
@@ -314,9 +346,11 @@ async def get_team_calendar(team_id: str, current_user: User = Depends(get_curre
                 "calendar_url": event.get("htmlLink") or schedule.get("calendar_url"),
                 "attendees": event.get("attendees", []),
             } for event in matches]
+            if mapped:
+                return mapped
         except ValueError:
             pass
-    cursor = db["calendar_events"].find({"team_id": team_id}).sort("start_time", 1).limit(100)
+    cursor = db["calendar_events"].find({"team_id": team_id, "organization_id": str(current_user.current_org_id)}).sort("start_time", 1).limit(100)
     results = await cursor.to_list(length=100)
     for event in results:
         event["id"] = str(event.pop("_id"))
@@ -326,6 +360,8 @@ async def get_team_calendar(team_id: str, current_user: User = Depends(get_curre
 
 @router.get("/{team_id}/tasks")
 async def list_team_tasks(team_id: str, current_user: User = Depends(get_current_user)):
+    if not current_user.current_org_id:
+        raise HTTPException(status_code=400, detail="No organization found")
     db = get_database()
     team = await _find_team(db, current_user.current_org_id, team_id)
     if not team:
@@ -340,7 +376,9 @@ async def list_team_tasks(team_id: str, current_user: User = Depends(get_current
 
 
 @router.patch("/{team_id}/tasks/{task_id}")
-async def update_team_task(team_id: str, task_id: str, payload: dict, current_user: User = Depends(get_current_user)):
+async def update_team_task(team_id: str, task_id: str, payload: TaskStatusUpdate, current_user: User = Depends(get_current_user)):
+    if not current_user.current_org_id:
+        raise HTTPException(status_code=400, detail="No organization found")
     db = get_database()
     team = await _find_team(db, current_user.current_org_id, team_id)
     if not team:
@@ -353,7 +391,7 @@ async def update_team_task(team_id: str, task_id: str, payload: dict, current_us
     allowed = _can_schedule(current_user, team) or str(task.get("assignee_id")) == str(current_user.id)
     if not allowed:
         raise HTTPException(status_code=403, detail="Only this team's manager or the task assignee can update a task")
-    status = payload.get("status")
+    status = payload.status
     if status not in ("open", "in_progress", "done"):
         raise HTTPException(status_code=422, detail="Task status must be open, in_progress, or done")
     query = {"team_id": team_id, "_id": {"$in": _id_values(task_id)}}

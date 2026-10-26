@@ -52,7 +52,7 @@ def _team_manage_allowed(team: dict, user: User) -> bool:
 
 @router.get("/google/status")
 async def google_calendar_status(current_user: User = Depends(get_current_user)):
-    connection = await google_calendar.get_connection(current_user.current_org_id, current_user.id)
+    connection = await google_calendar.get_connection(current_user.current_org_id or "", current_user.id)
     return {"configured": google_calendar.google_calendar_configured(), "connected": bool(connection), "email": connection.get("email") if connection else None}
 
 
