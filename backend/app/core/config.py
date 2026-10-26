@@ -52,10 +52,14 @@ class Settings(BaseSettings):
 
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_DRIVE_API_KEY: Optional[str] = None
+    GOOGLE_CLOUD_PROJECT_NUMBER: Optional[str] = None
 
     @property
     def google_calendar_redirect(self) -> str:
-        return "https://novascan-backend.onrender.com/api/v1/standup/google/callback"
+        # Google returns users to the frontend domain. A Next.js route relays
+        # the authorization response to this backend for secure code exchange.
+        return "https://nova-scan.vercel.app/api/oauth/google/calendar/callback"
 
     @property
     def github_redirect(self) -> str:

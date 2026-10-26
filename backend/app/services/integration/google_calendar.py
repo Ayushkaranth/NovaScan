@@ -20,6 +20,7 @@ GOOGLE_SCOPES = (
     "https://www.googleapis.com/auth/calendar.events "
     "https://www.googleapis.com/auth/meetings.space.readonly"
 )
+GOOGLE_DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 WEEKDAYS = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")
 
 
@@ -27,14 +28,15 @@ def google_calendar_configured() -> bool:
     return bool(settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET)
 
 
-def google_authorization_url(state: str) -> str:
+def google_authorization_url(state: str, redirect_uri: Optional[str] = None, include_drive: bool = False) -> str:
     from urllib.parse import urlencode
 
+    scopes = GOOGLE_SCOPES + (f" {GOOGLE_DRIVE_FILE_SCOPE}" if include_drive else "")
     return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode({
         "client_id": settings.GOOGLE_CLIENT_ID,
-        "redirect_uri": settings.google_calendar_redirect,
+        "redirect_uri": redirect_uri or settings.google_calendar_redirect,
         "response_type": "code",
-        "scope": GOOGLE_SCOPES,
+        "scope": scopes,
         "access_type": "offline",
         "prompt": "consent",
         "include_granted_scopes": "true",
@@ -42,13 +44,13 @@ def google_authorization_url(state: str) -> str:
     })
 
 
-async def exchange_code(code: str) -> Dict[str, Any]:
+async def exchange_code(code: str, redirect_uri: Optional[str] = None) -> Dict[str, Any]:
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.post(GOOGLE_TOKEN_URL, data={
             "code": code,
             "client_id": settings.GOOGLE_CLIENT_ID,
             "client_secret": settings.GOOGLE_CLIENT_SECRET,
-            "redirect_uri": settings.google_calendar_redirect,
+            "redirect_uri": redirect_uri or settings.google_calendar_redirect,
             "grant_type": "authorization_code",
         })
     if response.status_code != 200:
