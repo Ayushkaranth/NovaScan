@@ -52,11 +52,10 @@ class Settings(BaseSettings):
 
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
-    GOOGLE_CALENDAR_REDIRECT_URI: Optional[str] = None
 
     @property
     def google_calendar_redirect(self) -> str:
-        return self.GOOGLE_CALENDAR_REDIRECT_URI or "https://novascan-backend.onrender.com/api/v1/standup/google/callback"
+        return "https://novascan-backend.onrender.com/api/v1/standup/google/callback"
 
     @property
     def github_redirect(self) -> str:
