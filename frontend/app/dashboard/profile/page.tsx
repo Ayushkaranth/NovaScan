@@ -1,9 +1,10 @@
 'use client';
 
 import { ChangeEvent, useEffect, useState } from 'react';
-import { ArrowUpRight, Building2, Camera, FolderGit2, GitBranch, Hash, Loader2, Save, ShieldCheck, X } from 'lucide-react';
+import { ArrowUpRight, Building2, Camera, Eye, EyeOff, FolderGit2, GitBranch, Hash, Loader2, Save, ShieldCheck, X } from 'lucide-react';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import Link from 'next/link';
 
 type Profile = {
@@ -12,6 +13,7 @@ type Profile = {
   email: string;
   role?: string;
   profile_image?: string | null;
+  has_password?: boolean;
 };
 
 type AssignedProject = {
@@ -38,6 +40,13 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordNotice, setPasswordNotice] = useState('');
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [showPasswords, setShowPasswords] = useState(false);
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -119,6 +128,36 @@ export default function ProfilePage() {
       setError(err.response?.data?.detail || 'Could not save your profile. Please try again.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const savePassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setPasswordError('');
+    setPasswordNotice('');
+    if (newPassword.length < 8) {
+      setPasswordError('Use at least 8 characters for your new password.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('The new passwords do not match.');
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      const { data } = await api.post('/auth/me/password', {
+        current_password: currentPassword || undefined,
+        new_password: newPassword,
+      });
+      setProfile((previous) => previous ? { ...previous, has_password: true } : previous);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordNotice(data.message || 'Your password has been updated.');
+    } catch (err: any) {
+      setPasswordError(err.response?.data?.detail || 'Could not update your password. Please try again.');
+    } finally {
+      setSavingPassword(false);
     }
   };
 
@@ -206,6 +245,45 @@ export default function ProfilePage() {
             Save profile
           </Button>
         </div>
+      </section>
+
+      <section className="space-y-5 rounded-xl border border-border bg-card p-6">
+        <div>
+          <h2 className="text-xl font-semibold">Password & sign-in</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {profile?.has_password === false
+              ? 'Add a password so you can also sign in with your email.'
+              : 'Choose a new password for your NovaScan account.'}
+          </p>
+        </div>
+        {passwordError && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{passwordError}</div>}
+        {passwordNotice && <div role="status" className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-700 dark:text-emerald-300">{passwordNotice}</div>}
+        <form onSubmit={savePassword} className="space-y-4">
+          {profile?.has_password !== false && <div className="space-y-2">
+            <label htmlFor="current-password" className="text-sm font-medium">Current password</label>
+            <Input id="current-password" type={showPasswords ? 'text' : 'password'} autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
+          </div>}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label htmlFor="new-password" className="text-sm font-medium">New password</label>
+              <Input id="new-password" type={showPasswords ? 'text' : 'password'} autoComplete="new-password" minLength={8} maxLength={128} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="confirm-password" className="text-sm font-medium">Confirm new password</label>
+              <Input id="confirm-password" type={showPasswords ? 'text' : 'password'} autoComplete="new-password" minLength={8} maxLength={128} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+            <Button type="button" variant="ghost" size="sm" onClick={() => setShowPasswords((shown) => !shown)}>
+              {showPasswords ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
+              {showPasswords ? 'Hide passwords' : 'Show passwords'}
+            </Button>
+            <Button type="submit" disabled={savingPassword || !newPassword || !confirmPassword}>
+              {savingPassword ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
+              {profile?.has_password === false ? 'Set password' : 'Update password'}
+            </Button>
+          </div>
+        </form>
       </section>
 
       <section className="space-y-5 rounded-xl border border-border bg-card p-6">

@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
 export default function AuthPage() {
   const router = useRouter();
@@ -171,6 +172,12 @@ export default function AuthPage() {
                   Sign In with Email
                 </Button>
               </form>
+
+              <div className="mt-3 text-right">
+                <Link href="/auth/forgot-password" className="text-sm font-medium text-primary underline-offset-4 hover:underline">
+                  Forgot password?
+                </Link>
+              </div>
 
               <div className="flex items-center gap-3 my-6">
                 <div className="flex-1 h-px bg-border" />

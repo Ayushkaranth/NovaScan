@@ -114,6 +114,10 @@
 
 from datetime import timedelta, datetime
 from typing import Any, Optional, List
+import hashlib
+import secrets
+import logging
+from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from google.oauth2 import id_token
 from google.auth.transport import requests
@@ -126,12 +130,14 @@ from pydantic import Field, field_validator
 from bson import ObjectId
 from fastapi.security import OAuth2PasswordBearer
 from app.core.config import settings
+from app.services.delivery.email_service import send_password_reset_email
 import os
 import base64
 import binascii
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class ProfileUpdate(BaseModel):
@@ -161,6 +167,39 @@ class ProfileUpdate(BaseModel):
             raise ValueError("The uploaded image is invalid")
         if not image_data or len(image_data) > 1024 * 1024:
             raise ValueError("Profile images must be 1 MB or smaller")
+        return value
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: Optional[str] = Field(default=None, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def bcrypt_password_limit(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be no more than 72 UTF-8 bytes")
+        return value
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=256)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def bcrypt_password_limit(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be no more than 72 UTF-8 bytes")
         return value
 
 # Replace YOUR_GOOGLE_CLIENT_ID with the one from Google Cloud Console
@@ -203,6 +242,7 @@ async def get_my_profile(current_user: User = Depends(get_current_user)):
         "email": user.get("email"),
         "role": user.get("role"),
         "profile_image": user.get("profile_image") or user.get("picture"),
+        "has_password": bool(user.get("hashed_password")),
     }
 
 
@@ -234,7 +274,84 @@ async def update_my_profile(
         "email": user.get("email"),
         "role": user.get("role"),
         "profile_image": user.get("profile_image") or user.get("picture"),
+        "has_password": bool(user.get("hashed_password")),
     }
+
+
+@router.post("/me/password")
+async def change_my_password(
+    payload: PasswordChangeRequest,
+    current_user: User = Depends(get_current_user),
+):
+    db = get_database()
+    user = await db["users"].find_one({"email": current_user.email})
+    if not user:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    existing_hash = user.get("hashed_password")
+    if existing_hash:
+        if not payload.current_password:
+            raise HTTPException(status_code=400, detail="Enter your current password")
+        if not security.verify_password(payload.current_password, existing_hash):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+        if security.verify_password(payload.new_password, existing_hash):
+            raise HTTPException(status_code=400, detail="Choose a password different from your current one")
+
+    await db["users"].update_one(
+        {"_id": user["_id"]},
+        {"$set": {"hashed_password": security.get_password_hash(payload.new_password)}},
+    )
+    return {"message": "Password updated successfully"}
+
+
+@router.post("/forgot-password")
+async def forgot_password(payload: ForgotPasswordRequest):
+    """Always return the same response so account existence is not disclosed."""
+    generic_message = "If an account exists for that email, we’ve sent a password reset link."
+    db = get_database()
+    user = await db["users"].find_one({"email": payload.email})
+    if not user:
+        return {"message": generic_message}
+
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    expires_at = datetime.utcnow() + timedelta(minutes=30)
+    await db["users"].update_one(
+        {"_id": user["_id"]},
+        {"$set": {"password_reset_token_hash": token_hash, "password_reset_expires_at": expires_at}},
+    )
+    reset_url = f"{settings.FRONTEND_URL.rstrip('/')}/auth/reset-password?{urlencode({'token': raw_token})}"
+    sent = await send_password_reset_email(payload.email, reset_url)
+    if not sent:
+        logger.error("Password reset email could not be delivered for an account")
+    return {"message": generic_message}
+
+
+@router.post("/reset-password")
+async def reset_password(payload: ResetPasswordRequest):
+    token_hash = hashlib.sha256(payload.token.encode("utf-8")).hexdigest()
+    db = get_database()
+    user = await db["users"].find_one({
+        "password_reset_token_hash": token_hash,
+        "password_reset_expires_at": {"$gt": datetime.utcnow()},
+    })
+    if not user:
+        raise HTTPException(status_code=400, detail="This reset link is invalid or expired. Request a new one.")
+
+    result = await db["users"].update_one(
+        {
+            "_id": user["_id"],
+            "password_reset_token_hash": token_hash,
+            "password_reset_expires_at": {"$gt": datetime.utcnow()},
+        },
+        {
+            "$set": {"hashed_password": security.get_password_hash(payload.new_password)},
+            "$unset": {"password_reset_token_hash": "", "password_reset_expires_at": ""},
+        },
+    )
+    if result.modified_count != 1:
+        raise HTTPException(status_code=400, detail="This reset link is invalid or expired. Request a new one.")
+    return {"message": "Your password has been reset. You can now sign in."}
 
 @router.post("/google-login")
 async def google_login(payload: dict = Body(...)):

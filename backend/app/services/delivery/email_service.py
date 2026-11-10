@@ -1,6 +1,7 @@
 import resend
 import logging
 import asyncio
+from html import escape
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -69,3 +70,30 @@ async def send_manager_to_employee_alert(
     # 3. Send via Background Thread (Fast & Non-blocking)
     logger.info(f"📤 Sending email via API to {len(employee_emails)} recipients...")
     await asyncio.to_thread(_send_email_api, payload)
+
+
+async def send_password_reset_email(email: str, reset_url: str) -> bool:
+    """Send a one-time password reset link without logging its secret URL."""
+    if not settings.RESEND_API_KEY:
+        logger.error("Password reset email is unavailable: RESEND_API_KEY is not configured")
+        return False
+
+    safe_url = escape(reset_url, quote=True)
+    payload = {
+        "from": f"NovaScan <{settings.SMTP_USER}>",
+        "to": [email],
+        "subject": "Reset your NovaScan password",
+        "html": f"""
+        <div style="font-family: Inter, Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #111827;">
+          <div style="padding: 28px; border: 1px solid #e5e7eb; border-radius: 16px;">
+            <p style="margin: 0 0 8px; color: #6366f1; font-weight: 700;">NOVASCAN</p>
+            <h1 style="font-size: 22px; margin: 0 0 12px;">Reset your password</h1>
+            <p style="line-height: 1.6; color: #4b5563;">We received a request to reset the password for your account. This link expires in 30 minutes and can only be used once.</p>
+            <p style="margin: 24px 0;"><a href="{safe_url}" style="display: inline-block; padding: 12px 18px; border-radius: 9px; background: #4f46e5; color: #fff; text-decoration: none; font-weight: 600;">Choose a new password</a></p>
+            <p style="font-size: 13px; line-height: 1.6; color: #6b7280;">If you didn’t request a reset, you can ignore this email. Your password will remain unchanged.</p>
+          </div>
+        </div>
+        """,
+        "text": f"Reset your NovaScan password using this link (expires in 30 minutes): {reset_url}\n\nIf you didn’t request a reset, ignore this email.",
+    }
+    return await asyncio.to_thread(_send_email_api, payload)
