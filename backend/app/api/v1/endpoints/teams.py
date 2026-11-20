@@ -51,6 +51,20 @@ def _can_view_team(user: User, team: dict) -> bool:
     return user.role in ("admin", "hr") or str(team.get("manager_id")) == str(user.id) or str(user.id) in {str(value) for value in team.get("member_ids", [])}
 
 
+async def _assigned_project_team_ids(db, user: User) -> set[str]:
+    """Find teams attached to projects visible to a manager or employee."""
+    if not user.current_org_id or user.role not in ("manager", "employee"):
+        return set()
+    user_ids = _id_values(user.id)
+    org_ids = _id_values(user.current_org_id)
+    member_filter = {"manager_id": {"$in": user_ids}} if user.role == "manager" else {"employee_ids": {"$in": user_ids}}
+    projects = await db["projects"].find(
+        {"organization_id": {"$in": org_ids}, **member_filter, "team_id": {"$exists": True, "$nin": [None, ""]}},
+        {"team_id": 1},
+    ).to_list(length=1000)
+    return {str(project["team_id"]) for project in projects if project.get("team_id")}
+
+
 async def _validate_team_members(db, org_id: str, manager_id: str, member_ids: List[str], team_id: Optional[str] = None):
     normalized = list(dict.fromkeys([str(manager_id), *(str(value) for value in member_ids)]))
     org_values = _id_values(org_id)
@@ -97,9 +111,15 @@ async def list_teams(current_user: User = Depends(get_current_user)):
     org_values = _id_values(current_user.current_org_id)
     query = {"organization_id": {"$in": org_values}}
     if current_user.role == "manager":
-        query["manager_id"] = str(current_user.id)
+        project_team_ids = await _assigned_project_team_ids(db, current_user)
+        query["$or"] = [{"manager_id": {"$in": _id_values(current_user.id)}}]
+        if project_team_ids:
+            query["$or"].append({"_id": {"$in": [value for team_id in project_team_ids for value in _id_values(team_id)]}})
     elif current_user.role not in ("admin", "hr"):
-        query["member_ids"] = str(current_user.id)
+        project_team_ids = await _assigned_project_team_ids(db, current_user)
+        query["$or"] = [{"member_ids": {"$in": _id_values(current_user.id)}}]
+        if project_team_ids:
+            query["$or"].append({"_id": {"$in": [value for team_id in project_team_ids for value in _id_values(team_id)]}})
     teams = await db["teams"].find(query).sort("name", 1).to_list(length=1000)
     return [_public_team(team) for team in teams]
 

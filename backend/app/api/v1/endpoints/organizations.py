@@ -15,6 +15,17 @@ from app.core.database import get_database
 
 router = APIRouter()
 
+
+def _id_values(value):
+    """Include both legacy string IDs and Mongo ObjectIds in lookups."""
+    if value is None:
+        return []
+    text = str(value)
+    values = [text]
+    if ObjectId.is_valid(text):
+        values.append(ObjectId(text))
+    return values
+
 # --- Helper Schema ---
 class MemberAddRequest(BaseModel):
     email: EmailStr
@@ -196,19 +207,27 @@ async def get_my_organization_details(current_user: User = Depends(get_current_u
     org["_id"] = str(org["_id"])
 
     # Determine projects based on Role
-    project_query = {"organization_id": str(org["_id"])} # Ensure matching type
+    project_query = {"organization_id": {"$in": _id_values(org["_id"])}}
     
     if current_user.role == "manager":
-        project_query["manager_id"] = current_user.id
+        project_query["$or"] = [
+            {"manager_id": {"$in": _id_values(current_user.id)}},
+            {"employee_ids": {"$in": _id_values(current_user.id)}},
+        ]
     elif current_user.role == "employee":
-        project_query["employee_ids"] = current_user.id
+        project_query["employee_ids"] = {"$in": _id_values(current_user.id)}
     
     projects = await db["projects"].find(project_query).to_list(100)
     
     # 2. Convert Project IDs to Strings (Prevents Crash)
     for p in projects:
         p["_id"] = str(p["_id"])
-        p["organization_id"] = str(p["organization_id"])
+        if "organization_id" in p:
+            p["organization_id"] = str(p["organization_id"])
+        if "manager_id" in p:
+            p["manager_id"] = str(p["manager_id"])
+        if "employee_ids" in p:
+            p["employee_ids"] = [str(value) for value in p["employee_ids"]]
 
     stats = {
         "total_admins": len(org.get("admin_ids", [])),

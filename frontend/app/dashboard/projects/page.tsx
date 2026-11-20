@@ -49,7 +49,7 @@ export default function ProjectsPage() {
     };
 
     const filteredProjects = projects.filter(project =>
-        project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (project.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
         (project.repo_name || "").toLowerCase().includes(searchQuery.toLowerCase())
     );
 
@@ -112,7 +112,7 @@ export default function ProjectsPage() {
                                 <div className="p-2 bg-blue-50 dark:bg-blue-950/30 rounded-lg text-blue-600 dark:text-blue-400">
                                     <FolderGit2 className="w-6 h-6" />
                                 </div>
-                                <DropdownMenu>
+                                    {canCreateProject && <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                         <Button variant="ghost" size="icon" className="h-8 w-8">
                                             <MoreHorizontal className="w-4 h-4" />
@@ -123,7 +123,7 @@ export default function ProjectsPage() {
                                             <Link href={`/projects/${project._id}/settings`}>Settings</Link>
                                         </DropdownMenuItem>
                                     </DropdownMenuContent>
-                                </DropdownMenu>
+                                    </DropdownMenu>}
                             </div>
 
                             <h3 className="text-xl font-bold tracking-tight mb-1 group-hover:text-blue-600 transition-colors">
@@ -183,10 +183,8 @@ export default function ProjectsPage() {
                     <div className="col-span-full text-center py-16 bg-muted/20 rounded-xl border border-dashed text-muted-foreground">
                         <FolderGit2 className="w-12 h-12 mx-auto mb-3 opacity-20" />
                         <h3 className="text-lg font-semibold text-foreground">No projects found</h3>
-                        <p className="mb-6">Get started by creating your first project.</p>
-                        <Button asChild>
-                            <Link href="/projects/new">Create Project</Link>
-                        </Button>
+                                <p className="mb-6">{canCreateProject ? "Get started by creating your first project." : "Ask your organization admin to assign you to a project."}</p>
+                                {canCreateProject && <Button asChild><Link href="/projects/new">Create Project</Link></Button>}
                     </div>
                 )}
             </div>

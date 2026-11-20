@@ -435,7 +435,7 @@ async def get_project_summaries(
     """
     db = get_database()
     project = await verify_standup_access(project_id, current_user, db)
-    cursor = db["standups"].find({"project_id": {"$in": [project_id, project.get("_id")]}}).sort("date", -1).limit(20)
+    cursor = db["standups"].find({"project_id": {"$in": [str(project_id), str(project.get("_id")), project.get("_id")]}}).sort("date", -1).limit(20)
     summaries = await cursor.to_list(length=20)
     
     results = []

@@ -1,80 +1,105 @@
-// app/dashboard/page.tsx
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import api from '@/lib/api';
-import { HRDashboard } from '@/components/dashboard/HRDashboard';
-import { ManagerDashboard } from '@/components/dashboard/ManagerDashboard';
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Activity, CalendarDays, FolderGit2, ListChecks, Loader2, ShieldAlert, Users } from "lucide-react";
+import api from "@/lib/api";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+
+type Workspace = {
+  projects: any[];
+  risks: any[];
+  teams: any[];
+  standups: any[];
+  tasks: any[];
+};
 
 export default function Dashboard() {
   const router = useRouter();
-  const [orgData, setOrgData] = useState<any>(null);
-  const [dashboardStats, setDashboardStats] = useState<any>(null);
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [role, setRole] = useState("");
+  const [organization, setOrganization] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
-  const fetchDashboardData = async () => {
-    try {
-      const res = await api.get('/organizations/me');
-
-      // If user is not part of an org, redirect to setup
-      if (!res.data.organization) {
-        router.push('/org/setup');
-        return;
-      }
-
-      setOrgData(res.data);
-
-      // If Admin, fetch extra stats
-      if (res.data.role === 'admin') {
-        try {
-          const statsRes = await api.get('/dashboard/stats');
-          setDashboardStats(statsRes.data);
-        } catch (statsErr) {
-          console.error("Failed to load extended stats", statsErr);
+    let active = true;
+    const load = async () => {
+      try {
+        const [orgResult, workspaceResult] = await Promise.all([
+          api.get("/organizations/me"),
+          api.get("/dashboard/workspace"),
+        ]);
+        if (!active) return;
+        if (!orgResult.data.organization) {
+          router.push("/org/setup");
+          return;
         }
+        setOrganization(orgResult.data.organization);
+        setRole((orgResult.data.role || "employee").toLowerCase());
+        setWorkspace(workspaceResult.data);
+      } catch (err: any) {
+        if (!active) return;
+        setError(err?.response?.data?.detail || "Could not load your workspace. Please refresh and try again.");
+        if (err?.response?.status === 401 || err?.response?.status === 403) router.push("/auth");
+      } finally {
+        if (active) setLoading(false);
       }
+    };
+    void load();
+    return () => { active = false; };
+  }, [router]);
 
-    } catch (err: any) {
-      console.error("Failed to load dashboard:", err);
-      // Redirect to login on auth errors (401 interceptor handles this too,
-      // but this is a safety net in case the interceptor fires after this catch)
-      if (err?.response?.status === 401 || err?.response?.status === 403) {
-        router.push('/auth');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (loading) return <div className="flex min-h-[50vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+  if (!workspace) return <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 text-sm text-destructive">{error || "Workspace data is unavailable."}</div>;
 
+  const { projects, risks, teams, standups, tasks } = workspace;
+  const criticalRisks = risks.filter((risk) => Number(risk.risk_score || risk.analysis?.risk_score || 0) >= 8).length;
+  const admin = ["admin", "hr"].includes(role);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-          <p className="text-muted-foreground animate-pulse">Loading Workspace...</p>
-        </div>
-      </div>
-    );
-  }
+  return <div className="space-y-8">
+    <header className="flex flex-wrap items-end justify-between gap-4">
+      <div><p className="text-sm font-medium text-primary">{organization?.name || "Workspace"}</p><h1 className="mt-1 text-3xl font-bold tracking-tight">{admin ? "Organization overview" : "My Workspace"}</h1><p className="mt-2 text-muted-foreground">Your assigned projects, team activity, risks, and standup follow-ups.</p></div>
+      <Button asChild variant="outline"><Link href="/dashboard/projects">View projects</Link></Button>
+    </header>
+    {error && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</div>}
 
-  // Safety check to prevent crashing if data is missing
-  if (!orgData || !orgData.organization) return null;
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <Stat icon={<FolderGit2 className="h-4 w-4" />} label="Projects" value={projects.length} />
+      <Stat icon={<Users className="h-4 w-4" />} label="Teams" value={teams.length} />
+      <Stat icon={<ShieldAlert className="h-4 w-4" />} label="Risk scans" value={risks.length} detail={`${criticalRisks} critical`} />
+      <Stat icon={<ListChecks className="h-4 w-4" />} label="Standups" value={standups.length} detail={`${tasks.filter((task) => task.status !== "done").length} open follow-ups`} />
+    </section>
 
-  const { role } = orgData;
+    <section className="grid gap-6 xl:grid-cols-2">
+      <Card><CardHeader className="flex flex-row items-center justify-between space-y-0"><div><CardTitle>Assigned projects</CardTitle><CardDescription>Projects linked to your account</CardDescription></div><Link className="text-sm text-primary hover:underline" href="/dashboard/projects">All projects</Link></CardHeader><CardContent className="space-y-3">
+        {projects.length ? projects.map((project) => <Link key={project._id} href={`/projects/${project._id}`} className="flex items-center justify-between gap-3 rounded-lg border p-4 transition-colors hover:bg-muted/50"><div className="min-w-0"><p className="truncate font-medium">{project.name}</p><p className="truncate text-sm text-muted-foreground">{project.repo_owner}/{project.repo_name}</p></div><FolderGit2 className="h-4 w-4 shrink-0 text-primary" /></Link>) : <Empty message="No projects are assigned to your account yet." />}
+      </CardContent></Card>
 
-  return (
-    <div className="animate-in fade-in duration-500">
-      {role === 'admin' ? (
-        <HRDashboard orgData={orgData} dashboardStats={dashboardStats} />
-      ) : (
-        <ManagerDashboard orgData={orgData} />
-      )}
-    </div>
-  );
+      <Card><CardHeader className="flex flex-row items-center justify-between space-y-0"><div><CardTitle>Recent risk scans</CardTitle><CardDescription>Latest findings from your projects</CardDescription></div><Link className="text-sm text-primary hover:underline" href="/dashboard/risks">Risk feed</Link></CardHeader><CardContent className="space-y-3">
+        {risks.length ? risks.slice(0, 5).map((risk) => <div key={risk._id} className="flex items-start justify-between gap-4 rounded-lg border p-4"><div className="min-w-0"><p className="truncate font-medium">{risk.pr_title || risk.summary || "Pull request scan"}</p><p className="mt-1 truncate text-sm text-muted-foreground">{risk.repo || "Repository"} · {risk.timestamp ? new Date(risk.timestamp).toLocaleDateString() : "Date unavailable"}</p></div><span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-semibold">Score {risk.risk_score ?? "—"}</span></div>) : <Empty message="No scans have been recorded for your projects yet." />}
+      </CardContent></Card>
+
+      <Card><CardHeader className="flex flex-row items-center justify-between space-y-0"><div><CardTitle>Teams & standups</CardTitle><CardDescription>Team schedules and recent meeting notes</CardDescription></div><Link className="text-sm text-primary hover:underline" href="/dashboard/standup">Open standups</Link></CardHeader><CardContent className="space-y-3">
+        {teams.length ? teams.map((team) => <div key={team._id} className="flex items-center justify-between gap-3 rounded-lg border p-4"><div className="min-w-0"><p className="truncate font-medium">{team.name}</p><p className="text-sm text-muted-foreground">{team.standup_schedule ? `Scheduled ${team.standup_schedule.local_time || ""} ${team.standup_schedule.timezone || ""}` : "No recurring schedule"}</p></div><CalendarDays className="h-4 w-4 shrink-0 text-primary" /></div>) : <Empty message="You are not assigned to a team yet." />}
+        {standups.slice(0, 3).map((standup) => <div key={standup._id} className="rounded-lg bg-muted/50 p-3"><p className="text-xs text-muted-foreground">{standup.date ? new Date(standup.date).toLocaleString() : "Standup"}</p><p className="mt-1 line-clamp-2 text-sm">{standup.summary || "Standup notes"}</p></div>)}
+        {!teams.length && !standups.length && <Link href="/dashboard/standup" className="text-sm text-primary hover:underline">View standup workspace</Link>}
+      </CardContent></Card>
+
+      <Card><CardHeader><CardTitle>Follow-up tasks</CardTitle><CardDescription>Open actions from team standups</CardDescription></CardHeader><CardContent className="space-y-3">
+        {tasks.filter((task) => task.status !== "done").slice(0, 6).map((task) => <div key={task._id} className="flex items-start gap-3 rounded-lg border p-3"><Activity className="mt-0.5 h-4 w-4 shrink-0 text-primary" /><div className="min-w-0"><p className="font-medium">{task.title}</p><p className="text-sm text-muted-foreground">{task.assignee_name || "Unassigned"} · {(task.status || "open").replace("_", " ")}</p></div></div>)}
+        {!tasks.some((task) => task.status !== "done") && <Empty message="No open standup follow-ups." />}
+      </CardContent></Card>
+    </section>
+  </div>;
+}
+
+function Stat({ icon, label, value, detail }: { icon: React.ReactNode; label: string; value: number; detail?: string }) {
+  return <Card><CardContent className="flex items-center gap-3 p-5"><div className="rounded-lg bg-primary/10 p-2 text-primary">{icon}</div><div><p className="text-sm text-muted-foreground">{label}</p><p className="text-2xl font-bold">{value}</p>{detail && <p className="text-xs text-muted-foreground">{detail}</p>}</div></CardContent></Card>;
+}
+
+function Empty({ message }: { message: string }) {
+  return <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">{message}</div>;
 }
