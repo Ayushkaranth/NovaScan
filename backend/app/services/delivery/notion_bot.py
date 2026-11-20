@@ -53,12 +53,38 @@ class NotionBot:
         elif not isinstance(recommendations, list):
             recommendations = [str(recommendations)]
 
+        status_type = database_status_type if database_status_type in ("select", "status") else "status"
+        status_name = "In Progress"
+        if database_id and not parent_page_id:
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    schema_response = await client.get(
+                        f"{self.base_url}/databases/{database_id}",
+                        headers=self._get_headers(notion_token),
+                    )
+                if schema_response.status_code == 200:
+                    properties = schema_response.json().get("properties", {})
+                    status_property = next(
+                        (value for key, value in properties.items() if key.casefold() == "status"),
+                        None,
+                    )
+                    if status_property and status_property.get("type") in ("select", "status"):
+                        status_type = status_property["type"]
+                        options = status_property.get(status_type, {}).get("options", [])
+                        option_names = [option.get("name", "") for option in options]
+                        status_name = next(
+                            (name for name in option_names if name.casefold() in ("in progress", "in-progress", "doing", "open")),
+                            option_names[0] if option_names else "In Progress",
+                        )
+            except Exception as exc:
+                logger.info("Could not inspect Notion Status property; using configured type (%s)", type(exc).__name__)
+
         def heading(text: str, level: int = 2) -> dict:
             key = f"heading_{level}"
             return {"object": "block", "type": key, key: {"rich_text": self._rich_text(text)}}
 
         def paragraphs(text: Any) -> List[dict]:
-            return [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": chunk}}
+            return [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [chunk]}}
                     for chunk in self._rich_text(text)]
 
         children = [{
@@ -99,7 +125,7 @@ class NotionBot:
                     "Name": {"title": [{"text": {"content": title}}]},
                     "Risk Level": {"select": {"name": self._get_risk_label(risk_score)}},
                     "Risk Score": {"number": risk_score},
-                    "Status": ({"select": {"name": "In progress"}} if database_status_type == "select" else {"status": {"name": "In Progress"}}),
+                    "Status": {status_type: {"name": status_name}},
                     "Source PR": {"url": pr_url if isinstance(pr_url, str) and pr_url.startswith("http") else "https://github.com"},
                     "Detected At": {"date": {"start": created_at}},
                 },
@@ -111,11 +137,11 @@ class NotionBot:
                 response = await client.post(f"{self.base_url}/pages", headers=self._get_headers(notion_token), json=payload)
                 if response.status_code not in (200, 201):
                     logger.error("Notion audit page creation failed (%s): %s", response.status_code, response.text[:500])
-                    return None
+                    return {"error": f"Notion API {response.status_code}: {response.text[:350]}"}
                 return response.json()
         except Exception as exc:
             logger.error("Notion audit page creation failed: %s", exc)
-            return None
+            return {"error": str(exc)[:350]}
 
     async def create_meeting_mom_page(self, mom_data: Dict[str, Any], notion_token: str, database_id: str):
         """

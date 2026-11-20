@@ -84,6 +84,7 @@ async def get_org_credentials(org_id: str, repo_full_name: str = None, project_i
             "github_token": github_token,
             "slack_token": oauth_credentials.get("slack_token") or settings_data.get("slack_bot_token"),
             "slack_channel": oauth_credentials.get("slack_channel") or settings_data.get("slack_channel"),
+            "slack_incoming_webhook_url": oauth_credentials.get("slack_incoming_webhook_url"),
             "jira_url": oauth_credentials.get("jira_url") or settings_data.get("jira_url"),
             "jira_cloud_id": oauth_credentials.get("jira_cloud_id"),
             "jira_oauth_token": oauth_credentials.get("jira_oauth_token"),
@@ -325,6 +326,12 @@ async def _process_github_app_event(org_id: str, project_id: str, payload: dict)
     return {"status": "processed"}
 
 
+def _slack_channel_url(channel_id: Optional[str]) -> Optional[str]:
+    if channel_id and re.fullmatch(r"[CGD][A-Z0-9]+", channel_id.upper()):
+        return f"https://app.slack.com/archives/{channel_id}"
+    return None
+
+
 async def dispatch_notifications(creds, risk_data, event_data, org_id: str, existing_delivery=None):
     """
     Handles alerts. Now uses the 'creds' dictionary which contains the correct tokens.
@@ -337,6 +344,10 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str, exis
     notion_done = (existing_delivery.get("notion") or {}).get("status") == "created"
     jira_done = (existing_delivery.get("jira") or {}).get("status") == "created"
     slack_done = (existing_delivery.get("slack") or {}).get("status") == "sent"
+    notion_error = (existing_delivery.get("notion") or {}).get("error")
+    slack_error = (existing_delivery.get("slack") or {}).get("error")
+    if slack_done and not slack_url:
+        slack_url = _slack_channel_url(creds.get("slack_channel"))
 
     # Lookup Org just for Manager Info (Tokens are already in 'creds')
     query = {"$or": [{"_id": org_id}, {"_id": ObjectId(org_id) if ObjectId.is_valid(org_id) else None}]}
@@ -365,10 +376,12 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str, exis
             report_context=event_data,
             database_status_type=creds.get("notion_database_status_type") or "status",
         )
-        if notion_res:
+        if notion_res and notion_res.get("url"):
             notion_url = notion_res.get("url")
             notion_done = True
             logger.info(f"📄 Notion report created: {notion_url}")
+        elif notion_res and notion_res.get("error"):
+            notion_error = notion_res["error"]
     elif risk_score >= 4:
         logger.info("ℹ️ Notion skipped (Tokens missing in Project settings)")
 
@@ -381,6 +394,7 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str, exis
             if isinstance(slack_result, dict):
                 slack_url = slack_result.get("url")
                 slack_done = slack_result.get("status") == "sent"
+                slack_error = slack_result.get("error")
             else:
                 slack_url = slack_result
                 slack_done = bool(slack_url)
@@ -401,9 +415,9 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str, exis
         pass
 
     return {
-        "notion": {"url": notion_url, "status": "created" if notion_done else "unavailable"},
+        "notion": {"url": notion_url, "status": "created" if notion_done else ("failed" if notion_error else "unavailable"), "error": notion_error},
         "jira": {"url": jira_url, "status": "created" if jira_done else "unavailable"},
-        "slack": {"url": slack_url, "status": "sent" if slack_done else "unavailable"},
+        "slack": {"url": slack_url, "status": "sent" if slack_done else ("failed" if slack_error else "unavailable"), "error": slack_error},
     }
         
 async def send_slack_alert(creds, repo, pr_id, risk_data, notion_url, org_id):
@@ -438,6 +452,29 @@ async def send_slack_alert(creds, repo, pr_id, risk_data, notion_url, org_id):
         return {"url": None, "status": "sent"}
     except Exception as e:
         logger.error(f"❌ Slack Error: {e}")
+        slack_response = getattr(e, "response", None)
+        slack_api_error = slack_response.get("error") if hasattr(slack_response, "get") else None
+        if slack_api_error == "not_in_channel" and creds.get("slack_incoming_webhook_url"):
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    webhook_response = await client.post(
+                        creds["slack_incoming_webhook_url"],
+                        json={"text": main_text, "blocks": blocks},
+                    )
+                if webhook_response.status_code == 200 and webhook_response.text.strip() == "ok":
+                    logger.info("Slack alert delivered through the project's incoming webhook")
+                    return {"url": _slack_channel_url(creds.get("slack_channel")), "status": "sent"}
+                return {"url": None, "status": "failed", "error": f"Slack incoming webhook returned HTTP {webhook_response.status_code}"}
+            except Exception as webhook_exc:
+                logger.error("Slack incoming webhook fallback failed: %s", webhook_exc)
+                return {"url": None, "status": "failed", "error": str(webhook_exc)[:300]}
+        if slack_api_error == "not_in_channel":
+            return {
+                "url": None,
+                "status": "failed",
+                "error": "NovaScan bot is not in the configured Slack channel. Invite the NovaScan app to that channel, then retry delivery.",
+            }
+        return {"url": None, "status": "failed", "error": str(e)[:300]}
 
 def create_jira_ticket(creds, repo, pr_id, pr_title, risk_data, pr_url, notion_url=None):
     try:

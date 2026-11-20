@@ -346,15 +346,15 @@ function ScanCard({ scan }: any) {
   );
 }
 
-function DeliveryLink({ label, delivery }: { label: string; delivery?: { url?: string; status?: string } }) {
+function DeliveryLink({ label, delivery }: { label: string; delivery?: { url?: string; status?: string; error?: string } }) {
   const available = !!delivery?.url;
   return available ? (
     <a href={delivery!.url} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted">
       View {label} ↗
     </a>
   ) : (
-    <span title={delivery?.status === "unavailable" ? "No successful delivery link is stored; verify this project's integration settings." : "This artifact has not been created yet."} className="inline-flex items-center rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-      {label}: {delivery?.status === "sent" || delivery?.status === "created" ? "Sent" : "Not available"}
+    <span title={delivery?.error || (delivery?.status === "unavailable" ? "No successful delivery link is stored; verify this project's integration settings." : "This artifact has not been created yet.")} className="inline-flex items-center rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+      {label}: {delivery?.status === "sent" || delivery?.status === "created" ? "Sent" : delivery?.status === "failed" ? "Failed" : "Not available"}
     </span>
   );
 }

@@ -211,6 +211,7 @@ class OAuthTokenManager:
         if slack:
             out["slack_token"] = slack.get("bot_token") or slack.get("access_token")
             out["slack_channel"] = slack.get("channel_id") or slack.get("channel")
+            out["slack_incoming_webhook_url"] = slack.get("incoming_webhook_url")
             out["slack_team_id"] = slack.get("team_id")
         await self.refresh_jira_token_if_needed(org_id, project_id)
         jira = await self.get_connection(org_id, project_id, "jira")
