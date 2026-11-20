@@ -16,6 +16,7 @@ from app.services.delivery.notion_bot import notion_bot
 from app.core.database import get_database 
 from app.services.delivery.email_service import send_manager_to_employee_alert
 from app.core.config import settings
+from app.core.crypto import decrypt_key
 from app.services.integration.oauth_token_manager import oauth_token_manager
 from app.services.integration.github_app import github_app_configured
 from slack_sdk import WebClient
@@ -109,7 +110,8 @@ async def save_scan_to_db(org_id, repo, pr_id, risk_data, pr_url, pr_title="Unti
             "pr_id": pr_id,
             "pr_title": pr_title,     
             "author": pr_author,      
-            "risk_score": risk_data.get("risk_score", 0),
+            "risk_score": risk_data.get("risk_score"),
+            "analysis_status": risk_data.get("analysis_status", "complete"),
             "is_risky": risk_data.get("is_risky", False),
             "summary": risk_data.get("reason", "No summary"),
             "timestamp": datetime.utcnow(),
@@ -119,6 +121,66 @@ async def save_scan_to_db(org_id, repo, pr_id, risk_data, pr_url, pr_title="Unti
         logger.info(f"💾 Scan saved: {pr_title} by {pr_author}")
     except Exception as e:
         logger.error(f"❌ DB Save Error: {e}")
+
+async def _fetch_pull_request_diff(token: str, repo_full_name: str, pr_number: int, diff_url: Optional[str]) -> str:
+    """Fetch a PR diff, falling back to GitHub's pull-files API when needed."""
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3.diff",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        if diff_url:
+            response = await client.get(diff_url, headers=headers)
+            if response.status_code == 200 and response.text.strip():
+                return response.text
+            logger.warning("GitHub PR diff URL returned %s for %s#%s", response.status_code, repo_full_name, pr_number)
+
+        response = await client.get(
+            f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}/files",
+            headers={**headers, "Accept": "application/vnd.github+json"},
+            params={"per_page": 100},
+        )
+        if response.status_code != 200:
+            logger.error("GitHub PR files API returned %s for %s#%s: %s", response.status_code, repo_full_name, pr_number, response.text[:300])
+            return ""
+        patches = []
+        for item in response.json():
+            patch = item.get("patch")
+            if patch:
+                patches.append(f"### {item.get('filename', 'changed file')}\n{patch}")
+        return "\n\n".join(patches)
+
+
+def _diff_unavailable_result() -> dict:
+    return {
+        "analysis_status": "failed",
+        "risk_score": None,
+        "reason": "NovaScan could not retrieve this pull request's code changes, so no risk score was produced. Check GitHub App pull request read access and retry with a new commit.",
+        "is_risky": False,
+    }
+
+
+async def _organization_ai_config(org_id: str) -> tuple[Optional[str], str]:
+    """Load and decrypt the organization's saved BYOK key for PR analysis."""
+    db = get_database()
+    if db is None:
+        return None, "gemini"
+    org_id_values = [str(org_id)]
+    if ObjectId.is_valid(str(org_id)):
+        org_id_values.append(ObjectId(str(org_id)))
+    organization = await db["organizations"].find_one(
+        {"_id": {"$in": org_id_values}}, {"ai_settings": 1}
+    )
+    ai_settings = (organization or {}).get("ai_settings") or {}
+    encrypted_key = ai_settings.get("encrypted_api_key")
+    try:
+        api_key = decrypt_key(encrypted_key) if encrypted_key else None
+    except Exception:
+        logger.exception("Unable to decrypt the organization's configured AI key")
+        api_key = None
+    return api_key, ai_settings.get("provider") or "gemini"
+
 
 # Register the static GitHub App route before the legacy /github/{org_id}
 # route below. Otherwise, the path segment "app" is consumed as org_id.
@@ -203,7 +265,8 @@ async def handle_github_webhook(org_id: str, request: Request, project_id: Optio
                         logger.error(f"❌ Failed to fetch diff: {resp.status_code}")
 
             # 3. AI Analysis
-            risk_analysis = await analyze_code(diff_text, {"title": title, "body": body})
+            ai_key, ai_provider = await _organization_ai_config(org_id)
+            risk_analysis = await analyze_code(diff_text, {"title": title, "body": body}, custom_api_key=ai_key, provider=ai_provider) if diff_text.strip() else _diff_unavailable_result()
             
             # 4. Save to DB (Passing Title/Author)
             await save_scan_to_db(
@@ -239,14 +302,11 @@ async def _process_github_app_event(org_id: str, project_id: str, payload: dict)
     creds = await get_org_credentials(org_id, repo_name, project_id)
     if not creds or not creds.get("github_token"):
         return {"status": "error", "message": "Project/repository credentials could not be resolved for this installation"}
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            pr.get("diff_url"),
-            headers={"Authorization": f"Bearer {creds['github_token']}", "Accept": "application/vnd.github.v3.diff"},
-            follow_redirects=True,
-        )
-    diff_text = response.text if response.status_code == 200 else ""
-    risk = await analyze_code(diff_text, {"title": pr.get("title", "Untitled"), "body": pr.get("body") or ""})
+    diff_text = await _fetch_pull_request_diff(
+        creds["github_token"], repo_name, pr["number"], pr.get("diff_url")
+    )
+    ai_key, ai_provider = await _organization_ai_config(org_id)
+    risk = await analyze_code(diff_text, {"title": pr.get("title", "Untitled"), "body": pr.get("body") or ""}, custom_api_key=ai_key, provider=ai_provider) if diff_text.strip() else _diff_unavailable_result()
     author = (pr.get("user") or {}).get("login", "Unknown")
     await save_scan_to_db(org_id, repo_name, pr["number"], risk, pr.get("html_url"), pr_title=pr.get("title", "Untitled"), pr_author=author)
     await dispatch_notifications(creds, risk, {

@@ -85,12 +85,17 @@ async def generate_insight(system_instruction: str, user_content: str, custom_ap
 
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
-async def analyze_code(diff: str, pr_details: dict, custom_api_key: Optional[str] = None):
+async def analyze_code(diff: str, pr_details: dict, custom_api_key: Optional[str] = None, provider: str = "gemini"):
     """
     Analyzes code diff for technical risks using dynamic BYOK key or free fallback.
     """
     if not diff or len(diff) < 10:
-        return {"risk_score": 0, "summary": "No significant code changes detected.", "is_risky": False}
+        return {
+            "analysis_status": "failed",
+            "risk_score": None,
+            "reason": "No pull request diff was available to analyze, so NovaScan did not produce a risk score.",
+            "is_risky": False,
+        }
 
     system_instruction = "You are a Senior Staff Engineer. Analyze this Pull Request code diff for security, reliability, or breaking changes."
     user_content = f"""
@@ -112,19 +117,12 @@ async def analyze_code(diff: str, pr_details: dict, custom_api_key: Optional[str
     }}
     """
     try:
-        return await generate_insight(system_instruction, user_content, custom_api_key=custom_api_key)
+        return await generate_insight(system_instruction, user_content, custom_api_key=custom_api_key, provider=provider)
     except Exception as e:
         logger.error(f"LLM Engine Error in analyze_code: {e}")
         return {
-            "risk_score": 5,
-            "reason": "AI analysis executed via fallback safeguards.",
-            "is_risky": True,
-            "action_needed": "Review the pull request and validate its behavior before merging.",
-            "recommendations": [
-                "Have a project owner review the affected code paths.",
-                "Run relevant unit and integration tests.",
-                "Confirm rollback and monitoring steps before release.",
-            ],
-            "impact": "The change could affect the reliability or security of the application.",
-            "affected_areas": ["Pull request changes; confirm the specific affected components during review."],
+            "analysis_status": "failed",
+            "risk_score": None,
+            "reason": "AI analysis failed, so NovaScan did not produce a risk score. Check the configured provider and API key, then retry.",
+            "is_risky": False,
         }

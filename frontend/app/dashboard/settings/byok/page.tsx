@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Key, Shield, Sparkles, CheckCircle2, Lock, Cpu, Server } from "lucide-react";
 
-import { API_BASE_URL } from "@/lib/api";
+import api from "@/lib/api";
 
 export default function BYOKSettingsPage() {
   const [provider, setProvider] = useState("gemini");
@@ -22,17 +22,13 @@ export default function BYOKSettingsPage() {
     setStatusMessage(null);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/settings/byok`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider: provider,
-          api_key: apiKey || null,
-          zero_data_retention: zdrEnabled
-        })
+      const res = await api.post("/settings/byok", {
+        provider,
+        api_key: apiKey || null,
+        zero_data_retention: zdrEnabled,
       });
 
-      const data = await res.json();
+      const data = res.data;
       if (data.status === "success") {
         setStatusMessage(`Security configuration updated! Provider: ${data.provider.toUpperCase()} (${data.fallback_to_free_gemini ? "Using System Free Gemini Key" : "Encrypted BYOK Key Active"})`);
       }

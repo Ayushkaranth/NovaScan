@@ -252,8 +252,6 @@ async def _live_check(provider: str, conn: Dict[str, Any]) -> Dict[str, Any]:
         logger.warning("Live OAuth check failed for %s: %s", provider, e)
         summary["live"] = False
 
-    if not summary["live"] and summary["status"] == "connected":
-        summary["status"] = "expired"
     return summary
 
 
@@ -308,8 +306,37 @@ async def get_oauth_status(
 
     await _validate_project_scope(current_user, project_id)
     stored = await oauth_token_manager.list_connections(org_id, project_id)
+    db = get_database()
+    from app.services.integration.oauth_token_manager import _find_project
+    project = await _find_project(db, project_id)
+    legacy_settings = (project or {}).get("settings") or {}
     connections = {}
     for provider in ("github", "slack", "jira", "notion"):
+        connection = await oauth_token_manager.get_connection(org_id, project_id, provider)
+        if not connection:
+            legacy_token_fields = {
+                "github": ("github_access_token", "github_token"),
+                "slack": ("slack_bot_token",),
+                "jira": ("jira_api_token",),
+                "notion": ("notion_token",),
+            }
+            if any(legacy_settings.get(field) for field in legacy_token_fields[provider]):
+                legacy_details = {}
+                if provider == "github" and project:
+                    legacy_details["repository"] = f"{project.get('repo_owner', '')}/{project.get('repo_name', '')}".strip("/")
+                elif provider == "slack":
+                    legacy_details["channel"] = legacy_settings.get("slack_channel")
+                elif provider == "jira":
+                    legacy_details["site_url"] = legacy_settings.get("jira_url")
+                elif provider == "notion":
+                    legacy_details["database_id"] = legacy_settings.get("notion_database_id")
+                    legacy_details["database_name"] = legacy_settings.get("notion_database_name")
+                connections[provider] = {
+                    "status": "connected", "live": False,
+                    "workspace_name": legacy_settings.get("slack_channel") if provider == "slack" else "Connected",
+                    "scope": "project settings", "connected_at": None, "details": legacy_details,
+                }
+                continue
         if live:
             if provider == "jira":
                 await oauth_token_manager.refresh_jira_token_if_needed(org_id, project_id)

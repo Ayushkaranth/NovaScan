@@ -51,7 +51,7 @@ export default function RisksPage() {
             (risk.summary || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
             (risk.repo || "").toLowerCase().includes(searchQuery.toLowerCase());
 
-        const matchesSeverity = severityFilter === "all" ? true :
+        const matchesSeverity = severityFilter === "all" ? true : risk.risk_score == null ? false :
             (risk.risk_score > 70 ? "high" : risk.risk_score > 40 ? "medium" : "low") === severityFilter;
 
         return matchesSearch && matchesSeverity;
@@ -141,7 +141,7 @@ export default function RisksPage() {
                                         </Badge>
                                     )}
                                     <Badge variant={risk.risk_score > 70 ? "destructive" : "secondary"}>
-                                        Score: {risk.risk_score}
+                                        {risk.risk_score == null ? "Analysis unavailable" : `Score: ${risk.risk_score}`}
                                     </Badge>
                                 </div>
                             </div>

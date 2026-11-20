@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import api from '@/lib/api';
+import api, { getUserFromToken } from '@/lib/api';
 import {
   ArrowLeft,
   GitPullRequest,
@@ -27,7 +27,7 @@ import {
 type OAuthProvider = 'github' | 'slack' | 'jira' | 'notion';
 type ProjectIntegrationStatus = {
   configured?: Partial<Record<OAuthProvider, boolean>>;
-  connections?: Partial<Record<OAuthProvider, { status?: string; workspace_name?: string; scope?: string; connected_at?: string; details?: { repository?: string; database_name?: string; database_url?: string; parent_page_url?: string } }>>;
+  connections?: Partial<Record<OAuthProvider, { status?: string; live?: boolean; workspace_name?: string; scope?: string; connected_at?: string; details?: { repository?: string; database_name?: string; database_url?: string; parent_page_url?: string } }>>;
 };
 
 const integrationProviders: { id: OAuthProvider; name: string; icon: any }[] = [
@@ -49,8 +49,11 @@ export default function ProjectDashboard() {
   const [integrationsLoading, setIntegrationsLoading] = useState(true);
   const [activeIntegration, setActiveIntegration] = useState<OAuthProvider | null>(null);
   const [integrationError, setIntegrationError] = useState('');
+  const [canManageIntegrations, setCanManageIntegrations] = useState(false);
 
   useEffect(() => {
+    const role = String(getUserFromToken()?.role || '').toLowerCase();
+    setCanManageIntegrations(['admin', 'hr', 'manager'].includes(role));
     const fetchData = async () => {
       try {
         // 1. Get Project Details
@@ -189,9 +192,9 @@ export default function ProjectDashboard() {
         <div className="bg-card p-5 rounded-xl border border-border shadow-sm">
           <p className="text-sm font-medium text-muted-foreground mb-1">Avg Risk Score</p>
           <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-            {scans.length > 0
-              ? (scans.reduce((acc, curr) => acc + curr.risk_score, 0) / scans.length).toFixed(1)
-              : '0.0'}
+            {scans.some(s => s.risk_score != null)
+              ? (scans.filter(s => s.risk_score != null).reduce((acc, curr) => acc + curr.risk_score, 0) / scans.filter(s => s.risk_score != null).length).toFixed(1)
+              : '—'}
           </p>
         </div>
       </div>
@@ -218,7 +221,7 @@ export default function ProjectDashboard() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Icon className="h-5 w-5" /></div>
-                  <div><h3 className="font-semibold">{name}</h3><p className="mt-0.5 text-xs text-muted-foreground">{integrationsLoading ? 'Checking connection…' : connected ? (id === 'github' ? connection?.details?.repository || connection?.workspace_name || 'Connected' : id === 'notion' ? connection?.details?.database_name || `${connection?.workspace_name || 'Connected'} · tracker setup needed in settings` : connection?.workspace_name || 'Connected') : connection?.status === 'expired' ? 'Reconnect required' : 'Not connected'}</p></div>
+                  <div><h3 className="font-semibold">{name}</h3><p className="mt-0.5 text-xs text-muted-foreground">{integrationsLoading ? 'Checking connection…' : connected ? `${id === 'github' ? connection?.details?.repository || connection?.workspace_name || 'Connected' : id === 'notion' ? connection?.details?.database_name || `${connection?.workspace_name || 'Connected'} · tracker setup needed in settings` : connection?.workspace_name || 'Connected'}${connection?.live === false ? ' · live check needs attention' : ''}` : connection?.status === 'expired' ? 'Reconnect required' : 'Not connected'}</p></div>
                   </div>
                   {connected && <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />}
                 </div>
@@ -226,14 +229,14 @@ export default function ProjectDashboard() {
                   {connected ? (
                     <>
                       {id === 'notion' && (connection?.details?.parent_page_url || connection?.details?.database_url) && <a href={connection?.details?.parent_page_url || connection?.details?.database_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50">Open tracker page</a>}
-                      <button type="button" onClick={() => disconnectIntegration(id)} disabled={busy} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-60">
+                      {canManageIntegrations && <button type="button" onClick={() => disconnectIntegration(id)} disabled={busy} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted/50 disabled:opacity-60">
                         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unplug className="h-4 w-4" />} Disconnect
-                      </button>
+                      </button>}
                     </>
                   ) : (
-                    <button type="button" onClick={() => connectIntegration(id)} disabled={busy || integrationsLoading || !configured} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
+                    canManageIntegrations ? <button type="button" onClick={() => connectIntegration(id)} disabled={busy || integrationsLoading || !configured} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}{configured ? `Connect ${name}` : 'OAuth not configured'}
-                    </button>
+                    </button> : <p className="text-sm text-muted-foreground">Ask a project manager or admin to connect this tool.</p>
                   )}
                 </div>
               </article>
@@ -274,12 +277,13 @@ export default function ProjectDashboard() {
 // === SUB-COMPONENT: Scan Card ===
 function ScanCard({ scan }: any) {
   // Determine color based on Risk Score (0-10)
-  const isHighRisk = scan.risk_score >= 7;
-  const isMediumRisk = scan.risk_score >= 4 && scan.risk_score < 7;
+  const hasScore = scan.risk_score != null;
+  const isHighRisk = hasScore && scan.risk_score >= 7;
+  const isMediumRisk = hasScore && scan.risk_score >= 4 && scan.risk_score < 7;
 
   let borderColor = "border-border";
-  let badgeColor = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
-  let icon = <CheckCircle className="h-5 w-5 text-emerald-500" />;
+  let badgeColor = hasScore ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground";
+  let icon = hasScore ? <CheckCircle className="h-5 w-5 text-emerald-500" /> : <AlertTriangle className="h-5 w-5 text-muted-foreground" />;
 
   if (isHighRisk) {
     borderColor = "border-red-500/30 bg-red-500/5";
@@ -315,7 +319,7 @@ function ScanCard({ scan }: any) {
 
         <div className={`px-4 py-2 rounded-lg text-center ${badgeColor}`}>
           <p className="text-xs font-bold uppercase tracking-wider">Risk Score</p>
-          <p className="text-2xl font-black">{scan.risk_score}</p>
+          <p className="text-sm font-bold">{hasScore ? scan.risk_score : "Unavailable"}</p>
         </div>
       </div>
 
