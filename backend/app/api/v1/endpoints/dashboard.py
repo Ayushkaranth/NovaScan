@@ -33,7 +33,10 @@ async def get_workspace(current_user: User = Depends(get_current_user)):
     """Return dashboard records scoped to the authenticated user's assignments."""
     db = get_database()
     if not current_user.current_org_id:
-        return {"projects": [], "risks": [], "teams": [], "standups": [], "tasks": []}
+        return {
+            "projects": [], "risks": [], "teams": [], "standups": [], "tasks": [],
+            "critical_risks": 0, "health_score": None, "employee_count": 0,
+        }
 
     org_ids = _id_values(current_user.current_org_id)
     user_ids = _id_values(current_user.id)
@@ -82,7 +85,12 @@ async def get_workspace(current_user: User = Depends(get_current_user)):
 
     standup_query = {"organization_id": {"$in": org_ids}, "team_archived": {"$ne": True}}
     if current_user.role not in ("admin", "hr"):
-        standup_query["team_id"] = {"$in": [v for value in team_ids for v in _id_values(value)]} if team_ids else {"$in": []}
+        visible_standup_records = []
+        if team_ids:
+            visible_standup_records.append({"team_id": {"$in": [v for value in team_ids for v in _id_values(value)]}})
+        if project_ids:
+            visible_standup_records.append({"project_id": {"$in": [v for value in project_ids for v in _id_values(value)]}})
+        standup_query["$or"] = visible_standup_records or [{"_id": {"$exists": False}}]
     standups = await db["standups"].find(standup_query).sort("date", -1).limit(20).to_list(length=20)
 
     task_query = {"organization_id": {"$in": org_ids}}
@@ -92,12 +100,31 @@ async def get_workspace(current_user: User = Depends(get_current_user)):
             task_query["$or"].append({"assignee_id": {"$in": user_ids}})
     tasks = await db["standup_tasks"].find(task_query).sort("updated_at", -1).limit(100).to_list(length=100)
 
+    def score(scan):
+        try:
+            return float(scan.get("risk_score", (scan.get("analysis") or {}).get("risk_score")))
+        except (TypeError, ValueError):
+            return None
+
+    scan_scores = [score(scan) for scan in scans]
+    critical_risks = sum(1 for value in scan_scores if value is not None and value >= 8)
+    analyzed_scans = [value for value in scan_scores if value is not None]
+    # Health score is an explicit severity-based calculation over available scans.
+    # Empty history is unknown (None), not an invented 100%.
+    health_score = round(100 - (sum(analyzed_scans) / len(analyzed_scans)) * 10) if analyzed_scans else None
+    employee_count = await db["users"].count_documents({
+        "current_org_id": {"$in": org_ids}, "role": "employee",
+    }) if current_user.role in ("admin", "hr") else None
+
     return {
         "projects": projects,
         "risks": [_serialize(scan) for scan in scans],
         "teams": teams,
         "standups": [_serialize(item) for item in standups],
         "tasks": [_serialize(item) for item in tasks],
+        "critical_risks": critical_risks,
+        "health_score": health_score,
+        "employee_count": employee_count,
     }
 
 @router.get("/stats")

@@ -15,25 +15,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { useEffect, useState } from "react";
-import api from "@/lib/api";
 
 export const HRDashboard = ({ orgData, dashboardStats }: { orgData: any, dashboardStats: any }) => {
     const { organization, stats } = orgData;
-    const { total_risks } = dashboardStats || {};
-    const [recentActivity, setRecentActivity] = useState<any[]>([]);
-
-    useEffect(() => {
-        const fetchActivity = async () => {
-            try {
-                const res = await api.get('/risks?limit=5');
-                setRecentActivity(res.data || []);
-            } catch (err) {
-                console.error("Failed to fetch recent activity", err);
-            }
-        };
-        fetchActivity();
-    }, []);
+    const { total_risks, health_score, recent_activity: recentActivity = [] } = dashboardStats || {};
 
     return (
         <div className="space-y-8">
@@ -62,7 +47,7 @@ export const HRDashboard = ({ orgData, dashboardStats }: { orgData: any, dashboa
                     title="Total Employees"
                     value={stats?.total_employees || 0}
                     icon={<Users className="w-5 h-5 text-indigo-600" />}
-                    trend="+12% from last month"
+                    trend="Current organization count"
                     color="indigo"
                 />
                 <StatCard
@@ -74,17 +59,17 @@ export const HRDashboard = ({ orgData, dashboardStats }: { orgData: any, dashboa
                 />
                 <StatCard
                     title="Critical Risks"
-                    value={total_risks || 0}
+                    value={total_risks ?? 0}
                     icon={<ShieldAlert className="w-5 h-5 text-red-600" />}
-                    trend="Requires Attention"
+                    trend={total_risks > 0 ? "Requires Attention" : "No critical risks found"}
                     color="red"
                     alert={total_risks > 0}
                 />
                 <StatCard
                     title="Health Score"
-                    value="98%"
+                    value={health_score == null ? "—" : `${health_score}%`}
                     icon={<Activity className="w-5 h-5 text-emerald-600" />}
-                    trend="Excellent"
+                    trend={health_score == null ? "Insufficient scan data" : health_score >= 90 ? "Healthy" : health_score >= 70 ? "Needs review" : "At risk"}
                     color="emerald"
                 />
             </div>
@@ -96,7 +81,7 @@ export const HRDashboard = ({ orgData, dashboardStats }: { orgData: any, dashboa
                 <div className="lg:col-span-2 space-y-6">
                     <div className="flex items-center justify-between">
                         <h2 className="text-xl font-semibold tracking-tight">Recent Activity</h2>
-                        <Button variant="ghost" size="sm" className="text-muted-foreground">View All</Button>
+                        <Button asChild variant="ghost" size="sm" className="text-muted-foreground"><Link href="/dashboard/risks">View All</Link></Button>
                     </div>
 
                     <div className="space-y-4">
@@ -119,21 +104,21 @@ export const HRDashboard = ({ orgData, dashboardStats }: { orgData: any, dashboa
                     <div className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm">
                         <div className="flex items-center gap-3">
                             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                            <span className="text-sm font-medium">All Systems Operational</span>
+                            <span className="text-sm font-medium">Live workspace data</span>
                         </div>
                         <div className="h-px bg-border" />
                         <div className="space-y-3">
                             <div className="flex items-center justify-between text-sm">
                                 <span className="text-muted-foreground">Database</span>
-                                <span className="text-emerald-600 font-medium">Healthy</span>
+                                <span className="text-muted-foreground font-medium">Connected to dashboard</span>
                             </div>
                             <div className="flex items-center justify-between text-sm">
                                 <span className="text-muted-foreground">API Gateway</span>
-                                <span className="text-emerald-600 font-medium">Healthy</span>
+                                <span className="text-muted-foreground font-medium">Available</span>
                             </div>
                             <div className="flex items-center justify-between text-sm">
                                 <span className="text-muted-foreground">Risk Engine</span>
-                                <span className="text-emerald-600 font-medium">Active</span>
+                                <span className="text-muted-foreground font-medium">{health_score == null ? "Awaiting scans" : "Scan data available"}</span>
                             </div>
                         </div>
                     </div>
@@ -197,21 +182,21 @@ const ActivityItem = ({ activity }: any) => {
             <div className="mt-1">
                 <div className={cn(
                     "w-8 h-8 rounded-full flex items-center justify-center border",
-                    activity.risk_score > 50
+                    activity.risk_score >= 8
                         ? "bg-red-50 border-red-200 text-red-600 dark:bg-red-950/30 dark:border-red-800"
                         : "bg-slate-50 border-slate-200 text-slate-500 dark:bg-slate-800 dark:border-slate-700"
                 )}>
-                    {activity.risk_score > 50 ? <ShieldAlert className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
+                    {activity.risk_score >= 8 ? <ShieldAlert className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
                 </div>
             </div>
             <div className="flex-1">
                 <div className="flex justify-between items-start">
-                    <p className="text-sm font-medium text-foreground">{activity.summary}</p>
-                    <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">Just now</span>
+                    <p className="text-sm font-medium text-foreground">{activity.pr_title || activity.summary || "Pull request scan"}</p>
+                    <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">{activity.timestamp ? new Date(activity.timestamp).toLocaleDateString() : "Date unavailable"}</span>
                 </div>
-                {activity.risk_score > 0 && (
+                {activity.risk_score != null && (
                     <div className="flex items-center gap-2 mt-2">
-                        <Badge variant={activity.risk_score > 70 ? "destructive" : "secondary"} className="text-[10px] px-1.5 py-0">
+                        <Badge variant={activity.risk_score >= 8 ? "destructive" : "secondary"} className="text-[10px] px-1.5 py-0">
                             Risk Score: {activity.risk_score}
                         </Badge>
                     </div>

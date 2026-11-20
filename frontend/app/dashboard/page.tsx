@@ -7,6 +7,7 @@ import { Activity, CalendarDays, FolderGit2, ListChecks, Loader2, ShieldAlert, U
 import api from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { HRDashboard } from "@/components/dashboard/HRDashboard";
 
 type Workspace = {
   projects: any[];
@@ -14,6 +15,9 @@ type Workspace = {
   teams: any[];
   standups: any[];
   tasks: any[];
+  critical_risks: number;
+  health_score: number | null;
+  employee_count: number | null;
 };
 
 export default function Dashboard() {
@@ -56,8 +60,9 @@ export default function Dashboard() {
   if (!workspace) return <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 text-sm text-destructive">{error || "Workspace data is unavailable."}</div>;
 
   const { projects, risks, teams, standups, tasks } = workspace;
-  const criticalRisks = risks.filter((risk) => Number(risk.risk_score || risk.analysis?.risk_score || 0) >= 8).length;
   const admin = ["admin", "hr"].includes(role);
+
+  if (admin) return <HRDashboard orgData={{ organization, stats: { total_employees: workspace.employee_count, active_projects: projects.length } }} dashboardStats={{ total_risks: workspace.critical_risks, health_score: workspace.health_score, recent_activity: risks.slice(0, 5) }} />;
 
   return <div className="space-y-8">
     <header className="flex flex-wrap items-end justify-between gap-4">
@@ -69,7 +74,7 @@ export default function Dashboard() {
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <Stat icon={<FolderGit2 className="h-4 w-4" />} label="Projects" value={projects.length} />
       <Stat icon={<Users className="h-4 w-4" />} label="Teams" value={teams.length} />
-      <Stat icon={<ShieldAlert className="h-4 w-4" />} label="Risk scans" value={risks.length} detail={`${criticalRisks} critical`} />
+      <Stat icon={<ShieldAlert className="h-4 w-4" />} label="Critical risks" value={workspace.critical_risks} detail={`${risks.length} scans`} />
       <Stat icon={<ListChecks className="h-4 w-4" />} label="Standups" value={standups.length} detail={`${tasks.filter((task) => task.status !== "done").length} open follow-ups`} />
     </section>
 
