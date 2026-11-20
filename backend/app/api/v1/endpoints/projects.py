@@ -36,15 +36,27 @@ async def list_projects(
     if not current_user.current_org_id:
         return []
 
-    # Filter based on role
-    query = {"organization_id": current_user.current_org_id}
-    
-    # Robust query for managers and employees
+    # Older records may store IDs as either strings or ObjectIds. Match both
+    # representations, and let managers see projects where they are either the
+    # assigned manager or a listed project member.
+    user_id = str(current_user.id)
+    org_id = str(current_user.current_org_id)
+    user_id_values = [user_id]
+    org_id_values = [org_id]
+    if ObjectId.is_valid(user_id):
+        user_id_values.append(ObjectId(user_id))
+    if ObjectId.is_valid(org_id):
+        org_id_values.append(ObjectId(org_id))
+
+    query = {"organization_id": {"$in": org_id_values}}
     if current_user.role == "manager":
-        query["manager_id"] = current_user.id
+        query["$or"] = [
+            {"manager_id": {"$in": user_id_values}},
+            {"employee_ids": {"$in": user_id_values}},
+        ]
     elif current_user.role == "employee":
-        query["employee_ids"] = current_user.id
-        
+        query["employee_ids"] = {"$in": user_id_values}
+
     projects = await db["projects"].find(query).limit(limit).to_list(limit)
 
     # 🚨 FIX: Convert ObjectIds to Strings
