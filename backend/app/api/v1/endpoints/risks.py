@@ -19,7 +19,10 @@ async def get_org_risks(
         return []
 
     # If project_id is provided, filter by it
-    filter_query = {"org_id": org_id}
+    org_ids = [str(org_id)]
+    if ObjectId.is_valid(str(org_id)):
+        org_ids.append(ObjectId(str(org_id)))
+    filter_query = {"org_id": {"$in": org_ids}}
     if project_id:
          # Resolve Project ID (ObjectId or String)
          if ObjectId.is_valid(project_id):

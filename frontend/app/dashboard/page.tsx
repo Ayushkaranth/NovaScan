@@ -20,6 +20,50 @@ type Workspace = {
   employee_count: number | null;
 };
 
+async function loadLegacyWorkspace(orgData: any): Promise<Workspace> {
+  const [projectsResult, teamsResult, risksResult] = await Promise.allSettled([
+    api.get("/projects?limit=100"),
+    api.get("/teams"),
+    api.get("/risks?limit=100"),
+  ]);
+  const projects = projectsResult.status === "fulfilled" ? projectsResult.value.data || [] : orgData.projects || [];
+  const teams = teamsResult.status === "fulfilled" ? teamsResult.value.data || [] : [];
+  const risks = risksResult.status === "fulfilled" ? risksResult.value.data || [] : [];
+
+  const [teamRecords, projectRecords] = await Promise.all([
+    Promise.all(teams.map(async (team: any) => {
+      const [summary, tasks] = await Promise.allSettled([
+        api.get(`/standup/teams/${team._id}/summary`),
+        api.get(`/teams/${team._id}/tasks`),
+      ]);
+      return {
+        standups: summary.status === "fulfilled" ? summary.value.data || [] : [],
+        tasks: tasks.status === "fulfilled" ? tasks.value.data || [] : [],
+      };
+    })),
+    Promise.all(projects.map(async (project: any) => {
+      try {
+        const response = await api.get(`/standup/${project._id}/summary`);
+        return response.data || [];
+      } catch { return []; }
+    })),
+  ]);
+
+  const standups = [...teamRecords.flatMap((record) => record.standups), ...projectRecords.flat()]
+    .filter((record, index, all) => all.findIndex((other) => String(other._id || other.id) === String(record._id || record.id)) === index)
+    .sort((a, b) => new Date(b.date || b.created_at || 0).getTime() - new Date(a.date || a.created_at || 0).getTime());
+  const tasks = teamRecords.flatMap((record) => record.tasks);
+  const scores = risks.map((risk: any) => Number(risk.risk_score ?? risk.analysis?.risk_score)).filter(Number.isFinite);
+  const criticalRisks = scores.filter((score: number) => score >= 8).length;
+
+  return {
+    projects, teams, risks, standups, tasks,
+    critical_risks: criticalRisks,
+    health_score: scores.length ? Math.round(100 - (scores.reduce((total: number, score: number) => total + score, 0) / scores.length) * 10) : null,
+    employee_count: orgData.stats?.total_employees ?? null,
+  };
+}
+
 export default function Dashboard() {
   const router = useRouter();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -32,10 +76,7 @@ export default function Dashboard() {
     let active = true;
     const load = async () => {
       try {
-        const [orgResult, workspaceResult] = await Promise.all([
-          api.get("/organizations/me"),
-          api.get("/dashboard/workspace"),
-        ]);
+        const orgResult = await api.get("/organizations/me");
         if (!active) return;
         if (!orgResult.data.organization) {
           router.push("/org/setup");
@@ -43,7 +84,17 @@ export default function Dashboard() {
         }
         setOrganization(orgResult.data.organization);
         setRole((orgResult.data.role || "employee").toLowerCase());
-        setWorkspace(workspaceResult.data);
+        try {
+          const workspaceResult = await api.get("/dashboard/workspace");
+          if (active) setWorkspace(workspaceResult.data);
+        } catch (workspaceError: any) {
+          // Render may still be running an older backend deployment. Build the
+          // same view from established endpoints while /dashboard/workspace
+          // is unavailable there.
+          if (![404, 405].includes(workspaceError?.response?.status)) throw workspaceError;
+          const legacyWorkspace = await loadLegacyWorkspace(orgResult.data);
+          if (active) setWorkspace(legacyWorkspace);
+        }
       } catch (err: any) {
         if (!active) return;
         setError(err?.response?.data?.detail || "Could not load your workspace. Please refresh and try again.");

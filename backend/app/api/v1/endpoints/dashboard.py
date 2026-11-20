@@ -60,7 +60,7 @@ async def get_workspace(current_user: User = Depends(get_current_user)):
     if current_user.role not in ("admin", "hr"):
         scan_query["$or"] = []
         if project_ids:
-            scan_query["$or"].append({"project_id": {"$in": [v for value in project_ids for v in _id_values(value)}})
+            scan_query["$or"].append({"project_id": {"$in": [v for value in project_ids for v in _id_values(value)]}})
         if repo_names:
             scan_query["$or"].append({"repo": {"$in": repo_names}})
         if not scan_query["$or"]:
@@ -69,6 +69,15 @@ async def get_workspace(current_user: User = Depends(get_current_user)):
             scan_query.pop("org_id", None)
             scan_query = {"$and": [{"org_id": {"$in": org_ids}}, {"$or": scan_query["$or"]}]}
     scans = await db["scans"].find(scan_query).sort("timestamp", -1).limit(100).to_list(length=100)
+    # Historical webhook rows may store org_id as either a string or ObjectId.
+    # For assigned roles, repo scoping is authoritative and can recover those
+    # older rows without widening access to unrelated repositories.
+    if current_user.role not in ("admin", "hr") and repo_names:
+        scoped_scans = await db["scans"].find({"repo": {"$in": repo_names}}).sort("timestamp", -1).limit(100).to_list(length=100)
+        seen_scan_ids = {str(scan.get("_id")) for scan in scans}
+        scans.extend(scan for scan in scoped_scans if str(scan.get("_id")) not in seen_scan_ids)
+        scans.sort(key=lambda scan: scan.get("timestamp") or 0, reverse=True)
+        scans = scans[:100]
 
     team_query = {"organization_id": {"$in": org_ids}}
     if current_user.role == "manager":

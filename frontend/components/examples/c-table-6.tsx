@@ -76,7 +76,7 @@ export function Pattern() {
                 <TableRow key={member.email}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <Avatar size="sm">
+                      <Avatar className="h-8 w-8">
                         <AvatarImage src={member.avatar} alt={member.name} />
                         <AvatarFallback>
                           {member.name
