@@ -337,6 +337,24 @@ function ScanCard({ scan }: any) {
           </a>
         </div>
       )}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <DeliveryLink label="Notion Audit Report" delivery={scan.deliveries?.notion} />
+        <DeliveryLink label="Jira Ticket" delivery={scan.deliveries?.jira} />
+        <DeliveryLink label="Slack Message" delivery={scan.deliveries?.slack} />
+      </div>
     </div>
+  );
+}
+
+function DeliveryLink({ label, delivery }: { label: string; delivery?: { url?: string; status?: string } }) {
+  const available = !!delivery?.url;
+  return available ? (
+    <a href={delivery!.url} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted">
+      View {label} ↗
+    </a>
+  ) : (
+    <span title={delivery?.status === "unavailable" ? "No successful delivery link is stored; verify this project's integration settings." : "This artifact has not been created yet."} className="inline-flex items-center rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+      {label}: {delivery?.status === "sent" || delivery?.status === "created" ? "Sent" : "Not available"}
+    </span>
   );
 }

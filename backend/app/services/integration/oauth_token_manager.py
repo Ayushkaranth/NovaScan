@@ -195,17 +195,18 @@ class OAuthTokenManager:
             await db["projects"].update_one({"_id": project["_id"]}, {"$set": set_fields})
         return {"applied": applied, "project_id": str(project["_id"])}
 
-    async def credentials_for_project(self, org_id: str, project_id: str) -> Dict[str, Any]:
+    async def credentials_for_project(self, org_id: str, project_id: str, include_github: bool = True) -> Dict[str, Any]:
         """Return decrypted credentials authorized for this exact project."""
         out: Dict[str, Any] = {}
-        github = await self.get_connection(org_id, project_id, "github")
-        if github:
-            if github.get("mode") == "github_app_repository" and github.get("installation_id") and github.get("repository_id"):
-                from app.services.integration.github_app import create_repository_token
-                out["github_token"] = await create_repository_token(github["installation_id"], github["repository_id"])
-            else:
-                out["github_token"] = github.get("access_token") or github.get("github_access_token")
-            out["github_login"] = github.get("login")
+        if include_github:
+            github = await self.get_connection(org_id, project_id, "github")
+            if github:
+                if github.get("mode") == "github_app_repository" and github.get("installation_id") and github.get("repository_id"):
+                    from app.services.integration.github_app import create_repository_token
+                    out["github_token"] = await create_repository_token(github["installation_id"], github["repository_id"])
+                else:
+                    out["github_token"] = github.get("access_token") or github.get("github_access_token")
+                out["github_login"] = github.get("login")
         slack = await self.get_connection(org_id, project_id, "slack")
         if slack:
             out["slack_token"] = slack.get("bot_token") or slack.get("access_token")

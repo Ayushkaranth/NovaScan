@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # --- HELPER: GET CREDENTIALS (PROJECT-AWARE) ---
-async def get_org_credentials(org_id: str, repo_full_name: str = None, project_id: str = None):
+async def get_org_credentials(org_id: str, repo_full_name: str = None, project_id: str = None, include_github_token: bool = True):
     """Fetch integration secrets from the matching project only; never org-wide."""
     try:
         db = get_database()
@@ -74,14 +74,16 @@ async def get_org_credentials(org_id: str, repo_full_name: str = None, project_i
                 return None
 
         settings_data = project.get("settings", {})
-        oauth_credentials = await oauth_token_manager.credentials_for_project(org_id, str(project["_id"]))
+        oauth_credentials = await oauth_token_manager.credentials_for_project(
+            org_id, str(project["_id"]), include_github=include_github_token
+        )
         # GitHub API access must come from the repo-scoped GitHub App token.
         github_token = oauth_credentials.get("github_token")
         return {
             "project_id": str(project["_id"]),
             "github_token": github_token,
             "slack_token": oauth_credentials.get("slack_token") or settings_data.get("slack_bot_token"),
-            "slack_channel": settings_data.get("slack_channel"),
+            "slack_channel": oauth_credentials.get("slack_channel") or settings_data.get("slack_channel"),
             "jira_url": oauth_credentials.get("jira_url") or settings_data.get("jira_url"),
             "jira_cloud_id": oauth_credentials.get("jira_cloud_id"),
             "jira_oauth_token": oauth_credentials.get("jira_oauth_token"),
@@ -100,12 +102,13 @@ async def get_org_credentials(org_id: str, repo_full_name: str = None, project_i
         return None
 
 # --- HELPER: SAVE SCAN TO DB (FIXED) ---
-async def save_scan_to_db(org_id, repo, pr_id, risk_data, pr_url, pr_title="Untitled", pr_author="Unknown"):
+async def save_scan_to_db(org_id, repo, pr_id, risk_data, pr_url, pr_title="Untitled", pr_author="Unknown", project_id=None):
     try:
         db = get_database()
         collection = db.get_collection("scans")
         scan_record = {
             "org_id": str(org_id),
+            "project_id": str(project_id) if project_id else None,
             "repo": repo,
             "pr_id": pr_id,
             "pr_title": pr_title,     
@@ -117,8 +120,9 @@ async def save_scan_to_db(org_id, repo, pr_id, risk_data, pr_url, pr_title="Unti
             "timestamp": datetime.utcnow(),
             "pr_url": pr_url
         }
-        await collection.insert_one(scan_record)
-        logger.info(f"💾 Scan saved: {pr_title} by {pr_author}")
+        result = await collection.insert_one(scan_record)
+        logger.info("Scan saved: %s by %s", pr_title, pr_author)
+        return result.inserted_id
     except Exception as e:
         logger.error(f"❌ DB Save Error: {e}")
 
@@ -269,10 +273,11 @@ async def handle_github_webhook(org_id: str, request: Request, project_id: Optio
             risk_analysis = await analyze_code(diff_text, {"title": title, "body": body}, custom_api_key=ai_key, provider=ai_provider) if diff_text.strip() else _diff_unavailable_result()
             
             # 4. Save to DB (Passing Title/Author)
-            await save_scan_to_db(
+            scan_id = await save_scan_to_db(
                 org_id, repo_full_name, pr_number, risk_analysis, pr_url, 
                 pr_title=title, 
-                pr_author=user_login
+                pr_author=user_login,
+                project_id=creds.get("project_id"),
             )
 
             # 5. Trigger Dispatch
@@ -284,7 +289,9 @@ async def handle_github_webhook(org_id: str, request: Request, project_id: Optio
                 "pr_id": pr_number,
                 "author": user_login,
             }
-            await dispatch_notifications(creds, risk_analysis, event_data, org_id)
+            deliveries = await dispatch_notifications(creds, risk_analysis, event_data, org_id)
+            if scan_id and deliveries:
+                await get_database()["scans"].update_one({"_id": scan_id}, {"$set": {"deliveries": deliveries, "deliveries_updated_at": datetime.utcnow()}})
 
         return {"status": "processed"}
 
@@ -308,20 +315,28 @@ async def _process_github_app_event(org_id: str, project_id: str, payload: dict)
     ai_key, ai_provider = await _organization_ai_config(org_id)
     risk = await analyze_code(diff_text, {"title": pr.get("title", "Untitled"), "body": pr.get("body") or ""}, custom_api_key=ai_key, provider=ai_provider) if diff_text.strip() else _diff_unavailable_result()
     author = (pr.get("user") or {}).get("login", "Unknown")
-    await save_scan_to_db(org_id, repo_name, pr["number"], risk, pr.get("html_url"), pr_title=pr.get("title", "Untitled"), pr_author=author)
-    await dispatch_notifications(creds, risk, {
+    scan_id = await save_scan_to_db(org_id, repo_name, pr["number"], risk, pr.get("html_url"), pr_title=pr.get("title", "Untitled"), pr_author=author, project_id=project_id)
+    deliveries = await dispatch_notifications(creds, risk, {
         "summary": f"PR #{pr['number']} in {repo_name}", "title": pr.get("title", "Untitled"),
         "url": pr.get("html_url"), "repo": repo_name, "pr_id": pr["number"], "author": author,
     }, org_id)
+    if scan_id and deliveries:
+        await get_database()["scans"].update_one({"_id": scan_id}, {"$set": {"deliveries": deliveries, "deliveries_updated_at": datetime.utcnow()}})
     return {"status": "processed"}
 
 
-async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
+async def dispatch_notifications(creds, risk_data, event_data, org_id: str, existing_delivery=None):
     """
     Handles alerts. Now uses the 'creds' dictionary which contains the correct tokens.
     """
     db = get_database()
-    notion_url = None
+    existing_delivery = existing_delivery or {}
+    notion_url = (existing_delivery.get("notion") or {}).get("url")
+    jira_url = (existing_delivery.get("jira") or {}).get("url")
+    slack_url = (existing_delivery.get("slack") or {}).get("url")
+    notion_done = (existing_delivery.get("notion") or {}).get("status") == "created"
+    jira_done = (existing_delivery.get("jira") or {}).get("status") == "created"
+    slack_done = (existing_delivery.get("slack") or {}).get("status") == "sent"
 
     # Lookup Org just for Manager Info (Tokens are already in 'creds')
     query = {"$or": [{"_id": org_id}, {"_id": ObjectId(org_id) if ObjectId.is_valid(org_id) else None}]}
@@ -339,7 +354,7 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
     risk_score = int(risk_data.get("risk_score", 0) or 0)
 
     # --- 1. Create a Notion audit report for medium or higher risk ---
-    if risk_score >= 4 and creds.get("notion_token") and (creds.get("notion_parent_page_id") or creds.get("notion_database_id")):
+    if risk_score >= 4 and not notion_done and not notion_url and creds.get("notion_token") and (creds.get("notion_parent_page_id") or creds.get("notion_database_id")):
         notion_res = await notion_bot.create_incident_report(
             analysis=risk_data,
             event_summary=event_data["summary"],
@@ -352,6 +367,7 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
         )
         if notion_res:
             notion_url = notion_res.get("url")
+            notion_done = True
             logger.info(f"📄 Notion report created: {notion_url}")
     elif risk_score >= 4:
         logger.info("ℹ️ Notion skipped (Tokens missing in Project settings)")
@@ -360,21 +376,35 @@ async def dispatch_notifications(creds, risk_data, event_data, org_id: str):
     
     if risk_score >= 4:
         # Slack
-        if creds.get("slack_token") and creds.get("slack_channel"):
-            await send_slack_alert(creds, event_data["repo"], event_data["pr_id"], risk_data, notion_url, org_id)
+        if not slack_done and not slack_url and creds.get("slack_token") and creds.get("slack_channel"):
+            slack_result = await send_slack_alert(creds, event_data["repo"], event_data["pr_id"], risk_data, notion_url, org_id)
+            if isinstance(slack_result, dict):
+                slack_url = slack_result.get("url")
+                slack_done = slack_result.get("status") == "sent"
+            else:
+                slack_url = slack_result
+                slack_done = bool(slack_url)
         
         # Jira
-        if creds.get("jira_oauth_token") and creds.get("jira_cloud_id"):
-            await create_jira_ticket_oauth(creds, event_data["repo"], event_data["pr_id"], event_data["title"], risk_data, event_data["url"], notion_url)
-        elif creds.get("jira_url") and creds.get("jira_token"):
-            create_jira_ticket(creds, event_data["repo"], event_data["pr_id"], event_data["title"], risk_data, event_data["url"], notion_url)
+        if not jira_done and not jira_url and creds.get("jira_oauth_token") and creds.get("jira_cloud_id"):
+            jira_url = await create_jira_ticket_oauth(creds, event_data["repo"], event_data["pr_id"], event_data["title"], risk_data, event_data["url"], notion_url)
+            jira_done = bool(jira_url)
+        elif not jira_done and not jira_url and creds.get("jira_url") and creds.get("jira_token"):
+            jira_url = create_jira_ticket(creds, event_data["repo"], event_data["pr_id"], event_data["title"], risk_data, event_data["url"], notion_url)
+            jira_done = bool(jira_url)
 
     # --- 3. High Risk Email ---
     if risk_score >= 6:
         # Simple lookup for now
         employees = [] # Add your employee lookup logic here if needed
         # await send_manager_to_employee_alert(...) 
-        pass 
+        pass
+
+    return {
+        "notion": {"url": notion_url, "status": "created" if notion_done else "unavailable"},
+        "jira": {"url": jira_url, "status": "created" if jira_done else "unavailable"},
+        "slack": {"url": slack_url, "status": "sent" if slack_done else "unavailable"},
+    }
         
 async def send_slack_alert(creds, repo, pr_id, risk_data, notion_url, org_id):
     client = WebClient(token=creds["slack_token"])
@@ -395,8 +425,17 @@ async def send_slack_alert(creds, repo, pr_id, risk_data, notion_url, org_id):
         blocks.append({"type": "actions", "elements": action_elements})
 
     try:
-        client.chat_postMessage(channel=creds["slack_channel"], text=main_text, blocks=blocks)
-        logger.info("✅ Slack alert sent")
+        response = client.chat_postMessage(channel=creds["slack_channel"], text=main_text, blocks=blocks)
+        permalink = None
+        if response.get("channel") and response.get("ts"):
+            try:
+                permalink = client.chat_getPermalink(channel=response["channel"], message_ts=response["ts"]).get("permalink")
+                return {"url": permalink, "status": "sent"}
+            except Exception:
+                logger.info("Slack message sent but permalink lookup failed")
+                return {"url": None, "status": "sent"}
+        logger.info("Slack alert sent")
+        return {"url": None, "status": "sent"}
     except Exception as e:
         logger.error(f"❌ Slack Error: {e}")
 
@@ -415,8 +454,9 @@ def create_jira_ticket(creds, repo, pr_id, pr_title, risk_data, pr_url, notion_u
             'description': desc,
             'issuetype': {'name': 'Task'},
         }
-        jira.create_issue(fields=issue_dict)
-        logger.info(f"🎫 Jira Ticket Created")
+        issue = jira.create_issue(fields=issue_dict)
+        logger.info("Jira ticket created: %s", issue.key)
+        return f"{creds['jira_url'].rstrip('/')}/browse/{issue.key}"
     except Exception as e:
         logger.error(f"❌ Jira Error: {e}")
 
@@ -425,7 +465,7 @@ async def create_jira_ticket_oauth(creds, repo, pr_id, pr_title, risk_data, pr_u
     cloud_id = creds.get("jira_cloud_id")
     token = creds.get("jira_oauth_token")
     if not cloud_id or not token:
-        return
+        return None
     description = f"Risk Score: {risk_data.get('risk_score')}/10\nReason: {risk_data.get('reason')}\nPR Link: {pr_url}"
     if notion_url:
         description += f"\nDetailed Report: {notion_url}"
@@ -455,10 +495,14 @@ async def create_jira_ticket_oauth(creds, repo, pr_id, pr_title, risk_data, pr_u
             )
         if response.status_code in (200, 201):
             logger.info("Jira issue created for project %s", creds.get("jira_project_key", "KAN"))
+            issue_key = response.json().get("key")
+            site_url = (creds.get("jira_url") or "").rstrip("/")
+            return f"{site_url}/browse/{issue_key}" if site_url and issue_key else None
         else:
             logger.warning("Jira OAuth issue create failed (%s): %s", response.status_code, response.text[:300])
     except Exception as exc:
         logger.exception("Jira OAuth issue create failed: %s", exc)
+    return None
 
 # --- INTERACTIVE HANDLER ---
 @router.post("/slack/actions")

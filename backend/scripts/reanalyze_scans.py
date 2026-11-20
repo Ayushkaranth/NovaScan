@@ -25,6 +25,7 @@ from app.services.integration.oauth_token_manager import oauth_token_manager
 from app.services.integration.github_app import create_repository_token
 from app.services.intelligence.llm_engine import analyze_code
 from app.api.v1.endpoints.webhooks import _organization_ai_config
+from app.api.v1.endpoints.webhooks import dispatch_notifications, get_org_credentials
 
 logger = logging.getLogger("reanalyze_scans")
 
@@ -192,14 +193,88 @@ async def run(apply: bool, org_filter: Optional[str], limit: Optional[int]) -> N
     await close_mongo_connection()
 
 
+async def deliver_saved_scans(apply: bool, org_filter: Optional[str], limit: Optional[int]) -> None:
+    """Create missing Notion/Jira/Slack artifacts for saved medium+ risks."""
+    await connect_to_mongo()
+    db = get_database()
+    if db is None:
+        raise RuntimeError("MongoDB connection is unavailable")
+    query = {}
+    if org_filter:
+        org_values = [org_filter]
+        if ObjectId.is_valid(org_filter):
+            org_values.append(ObjectId(org_filter))
+        query["org_id"] = {"$in": org_values}
+    cursor = db["scans"].find(query).sort("timestamp", -1)
+    if limit:
+        cursor = cursor.limit(limit)
+    scans = await cursor.to_list(length=limit or 100000)
+    grouped = {}
+    for scan in scans:
+        try:
+            score = float(scan.get("risk_score"))
+            pr_id = int(scan.get("pr_id"))
+        except (TypeError, ValueError):
+            continue
+        if score < 4 or not scan.get("repo") or pr_id < 1:
+            continue
+        key = (str(scan.get("org_id") or ""), scan["repo"], pr_id)
+        grouped.setdefault(key, []).append(scan)
+
+    print(f"Eligible risks: {len(grouped)}; mode: {'APPLY' if apply else 'DRY RUN'}")
+    successful = skipped = failed = 0
+    for index, ((org_id, repo, pr_id), rows) in enumerate(grouped.items(), start=1):
+        project = await project_for_scan(db, org_id, repo)
+        if not project:
+            logger.warning("No project matches org=%s repo=%s; skipped", org_id, repo)
+            skipped += 1
+            continue
+        creds = await get_org_credentials(org_id, repo, str(project["_id"]), include_github_token=False)
+        if not creds:
+            logger.warning("No project integrations for org=%s repo=%s; skipped", org_id, repo)
+            skipped += 1
+            continue
+        scan = rows[0]
+        risk_data = {
+            "risk_score": scan.get("risk_score"), "is_risky": scan.get("is_risky"),
+            "reason": scan.get("summary") or "Risk identified in saved pull request scan.",
+            "action_needed": scan.get("action_needed"), "recommendations": scan.get("recommendations", []),
+            "impact": scan.get("impact"), "affected_areas": scan.get("affected_areas", []),
+        }
+        event = {
+            "summary": f"PR #{pr_id} in {repo}", "title": scan.get("pr_title") or f"Pull request #{pr_id}",
+            "url": scan.get("pr_url") or f"https://github.com/{repo}/pull/{pr_id}",
+            "repo": repo, "pr_id": pr_id, "author": scan.get("author") or "Unknown",
+        }
+        existing = next((row.get("deliveries") for row in rows if row.get("deliveries")), {})
+        print(f"[{index}/{len(grouped)}] {repo}#{pr_id} score={risk_data['risk_score']}")
+        if not apply:
+            continue
+        try:
+            deliveries = await dispatch_notifications(creds, risk_data, event, org_id, existing_delivery=existing)
+            for row in rows:
+                await db["scans"].update_one({"_id": row["_id"]}, {"$set": {"deliveries": deliveries, "deliveries_updated_at": datetime.utcnow()}})
+            successful += 1
+            print("  delivery status:", ", ".join(f"{name}={data['status']}" for name, data in deliveries.items()))
+        except Exception as exc:
+            logger.exception("Delivery failed for %s#%s (%s)", repo, pr_id, type(exc).__name__)
+            failed += 1
+    print(f"Finished delivery. processed={successful}, skipped={skipped}, failed={failed}")
+    await close_mongo_connection()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="Write successful reassessments back to MongoDB")
     parser.add_argument("--org-id", help="Limit to a single organization; omit to process all organizations")
     parser.add_argument("--limit", type=int, help="Limit the number of saved scan rows to inspect")
+    parser.add_argument("--deliver", action="store_true", help="Deliver existing scans to configured Notion/Jira/Slack integrations; does not rerun AI")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    asyncio.run(run(args.apply, args.org_id, args.limit))
+    if args.deliver:
+        asyncio.run(deliver_saved_scans(args.apply, args.org_id, args.limit))
+    else:
+        asyncio.run(run(args.apply, args.org_id, args.limit))
 
 
 if __name__ == "__main__":
