@@ -1,0 +1,780 @@
+\documentclass[11pt,a4paper]{article}
+
+% ---------- Packages ----------
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{parskip}
+\usepackage{microtype}
+
+% ---------- Code listing style ----------
+\lstset{
+    basicstyle=\ttfamily\small\color{black},
+    breaklines=true,
+    breakatwhitespace=false,
+    frame=single,
+    framesep=4pt,
+    xleftmargin=4pt,
+    xrightmargin=4pt,
+    aboveskip=3pt,
+    belowskip=3pt,
+    showstringspaces=false,
+    tabsize=4,
+    columns=fullflexible,
+    keepspaces=true,
+    literate={-}{-}1
+}
+
+% Language definitions
+\lstdefinestyle{python}{
+    language=Python,
+    keywordstyle=\color{blue}\bfseries,
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{red!60!black}
+}
+\lstdefinestyle{javascript}{
+    language=Java,
+    morekeywords={const,let,require,module,exports,async,await,then,catch},
+    keywordstyle=\color{blue}\bfseries,
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{red!60!black}
+}
+\lstdefinestyle{dart}{
+    language=Java,
+    morekeywords={import,package,class,extends,implements,async,await,final,const,void,Future,String,bool,int,dynamic,override,super,State,StatefulWidget,StatelessWidget},
+    keywordstyle=\color{blue}\bfseries,
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{red!60!black}
+}
+
+% TypeScript/TSX style: blue keywords, green comments, red strings, black code
+\lstdefinestyle{typescript}{
+  language=Java,
+  morekeywords={const,let,var,async,await,interface,type,export,default,import,from,as,extends,implements,return,if,else,switch,case,break,try,catch,throw,new,typeof,void,boolean,string,number,unknown,any,Promise,ReactNode,Readonly,enum,readonly,public,private,protected},
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{green!50!black},
+  stringstyle=\color{red!60!black}
+}
+
+% ---------- Header / Footer ----------
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small NovaScan: AI-Driven DevSecOps Platform}
+\fancyhead[R]{\small Compiled Source Code}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ---------- Title formatting ----------
+\titleformat{\section}{\large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
+
+\begin{document}
+
+% ============================================================
+% TITLE
+% ============================================================
+\begin{center}
+    {\LARGE\bfseries NovaScan: AI-Driven DevSecOps Platform}\\[6pt]
+    {\large Compiled Source Code Package for Software Copyright Registration}\\[2pt]
+\end{center}
+
+\vspace{1.2em}
+
+% ============================================================
+% 1. Software Copyright Identification & Metadata
+% ============================================================
+\section{Software Copyright Identification \& Metadata}
+
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{TITLE OF WORK} & NovaScan: AI-Driven DevSecOps Platform \\
+\midrule
+\textbf{VERSION / DATE} & Repository snapshot / 14 November 2026 \\
+\midrule
+\textbf{CLASS OF WORK} & Computer Software / Computer Program\\
+\midrule
+\textbf{APPLICANT / OWNER} & Prakhar Shrivastava, Ayush Karanth, Rohan Bhangale, Suhas Arali, Rupali Kale
+ \\
+\midrule
+\textbf{AUTHORS} & Prakhar Shrivastava, Ayush Karanth, Rohan Bhangale, Suhas Arali, Rupali Kale \\
+\midrule
+\textbf{PROGRAMMING LANGUAGES} & Python, JavaScript, TypeScript; Next.js 14 framework \\
+
+\midrule
+\textbf{INSTITUTION \& DEPARTMENT} & Vivekanand Education Society's Institute of Technology -- Information Technology Department \\
+\bottomrule
+\end{tabularx}
+
+\vspace{1.5em}
+
+% ============================================================
+% 2. Statement of Third-Party Material
+% ============================================================
+\section{Statement of Third-Party Material \& Open Source Dependencies}
+
+{\small
+\begin{longtable}{@{}p{3.1cm}p{3.5cm}p{2.1cm}p{1.5cm}p{5.1cm}@{}}
+\toprule
+\textbf{Component} & \textbf{Source / Repository} & \textbf{Licence} & \textbf{Use} & \textbf{Scope / Attribution} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Component} & \textbf{Source / Repository} & \textbf{Licence} & \textbf{Use} & \textbf{Scope / Attribution} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+FastAPI & PyPI / fastapi & MIT & Direct dependency & Backend REST API framework. \\
+\midrule
+Uvicorn & PyPI / uvicorn & BSD-3-Clause & Direct dependency & ASGI server. \\
+\midrule
+Pydantic, pydantic-settings & PyPI & MIT & Direct dependencies & Request validation and configuration. \\
+\midrule
+Motor, PyMongo & PyPI & Apache-2.0 & Direct dependencies & MongoDB driver and BSON support. \\
+\midrule
+Redis Python client & PyPI / redis & MIT & Direct dependency & Redis client library. \\
+\midrule
+python-jose & PyPI & MIT & Direct dependency & JWT handling. \\
+\midrule
+Passlib, bcrypt & PyPI & BSD-3-Clause / Apache-2.0 & Direct dependencies & Password hashing utilities. \\
+\midrule
+python-multipart & PyPI & Apache-2.0 & Direct dependency & Multipart form and upload parsing. \\
+\midrule
+pypdf & PyPI & BSD-3-Clause & Direct dependency & PDF text extraction. \\
+\midrule
+google-auth & PyPI & Apache-2.0 & Direct dependency & Google OAuth credential support. \\
+\midrule
+google-genai, google-generativeai & PyPI & Apache-2.0 & Direct dependencies & Google AI client libraries. \\
+\midrule
+slack-sdk & PyPI & MIT & Direct dependency & Slack API client. \\
+\midrule
+httpx & PyPI & BSD-3-Clause & Direct dependency & HTTP client for external APIs. \\
+\midrule
+python-dotenv & PyPI & BSD-3-Clause & Direct dependency & Environment-file loading. \\
+\midrule
+jira & PyPI & BSD-2-Clause & Direct dependency & Jira client library. \\
+\midrule
+resend & PyPI & MIT & Direct dependency & Resend email API client. \\
+\midrule
+email-validator & PyPI & Unlicense & Direct dependency & Email address validation. \\
+\midrule
+tiktoken & PyPI & MIT & Direct dependency & Token counting utility. \\
+\midrule
+tenacity & PyPI & Apache-2.0 & Direct dependency & Retry utilities. \\
+\midrule
+Next.js & npm / next & MIT & Direct dependency & Frontend application framework (14.2.35). \\
+\midrule
+React, React DOM & npm & MIT & Direct dependencies & UI rendering and component runtime. \\
+\midrule
+Tailwind CSS & npm / tailwindcss & MIT & Direct dependency & Utility CSS framework. \\
+\midrule
+Base UI & npm / @base-ui/react & MIT & Direct dependency & UI primitives. \\
+\midrule
+Radix UI React packages & npm / @radix-ui/react-* & MIT & Direct dependencies & Accessible UI primitives used by the frontend. \\
+\midrule
+@react-oauth/google & npm & MIT & Direct dependency & Google sign-in UI integration. \\
+\midrule
+TanStack React Table & npm / @tanstack/react-table & MIT & Direct dependency & Table state and rendering utilities. \\
+\midrule
+Axios & npm & MIT & Direct dependency & Frontend HTTP client. \\
+\midrule
+class-variance-authority & npm & Apache-2.0 & Direct dependency & Component variant utility. \\
+\midrule
+clsx, cn & npm & MIT & Direct dependencies & Class-name utilities. \\
+\midrule
+Framer Motion & npm & MIT & Direct dependency & UI animation library. \\
+\midrule
+jwt-decode & npm & MIT & Direct dependency & JWT payload decoding in the frontend. \\
+\midrule
+Lucide React & npm / lucide-react & ISC & Direct dependency & UI icon set. \\
+\midrule
+next-themes & npm & MIT & Direct dependency & Theme preference support. \\
+\midrule
+Recharts & npm & MIT & Direct dependency & Data visualization components. \\
+\midrule
+tailwind-merge, tailwindcss-animate & npm & MIT & Direct dependencies & Tailwind class and animation utilities. \\
+\midrule
+TypeScript & npm / typescript & Apache-2.0 & Dev dependency & Frontend language tooling. \\
+\midrule
+ESLint, eslint-config-next, PostCSS & npm & MIT & Dev dependencies & Linting and CSS build tooling. \\
+\midrule
+@types/node, @types/react, @types/react-dom & npm & MIT & Dev dependencies & TypeScript declaration packages. \\
+\midrule
+GitHub App and REST APIs & GitHub & GitHub terms & External service & Repository installation, pull request metadata, and webhook delivery; API service, not bundled source code. \\
+\midrule
+Google OAuth, Calendar, Drive, Meet, and Gemini APIs & Google & Google API terms & External services & OAuth and external Google platform APIs; access depends on configured scopes and Google project status. \\
+\midrule
+Slack Web API & Slack & Slack developer terms & External service & Workspace messaging integration. \\
+\midrule
+Atlassian Jira Cloud REST API & Atlassian & Atlassian terms & External service & Jira issue tracking integration. \\
+\midrule
+Notion API & Notion & Notion API terms & External service & Audit-report and workspace content integration. \\
+\midrule
+MongoDB service & MongoDB & MongoDB terms & External service & Application database hosting/service, where configured. \\
+\bottomrule
+\end{longtable}
+
+\vspace{0.6em}
+The dependency rows above summarize direct packages declared in \texttt{backend/requirements.txt} and \texttt{frontend/package.json}; npm resolutions are recorded in frontend/package-lock.json; Python dependency versions are declared in backend/requirements.txt, with unpinned entries resolved by the installer. Licence identifiers are shown as declared by upstream project metadata and should be confirmed against the exact distributed versions before filing.
+
+Third-party platform integrations are called as external services. Their APIs, hosted services, product names, and terms remain owned by their respective providers; this compilation claims no ownership of those materials. The application source code contains integration logic and configuration references, not copies of provider API implementations.
+
+\vspace{0.8em}
+\noindent\textit{Declaration:} The applicants claim copyright only in original source code authored by them. Third-party software dependencies remain subject to their respective licences and notices. No ownership claim is made over third-party libraries, APIs, hosted services, or pretrained models.
+
+\vspace{1.5em}
+
+% ============================================================
+% 3. Repository Source Code Listings
+% ============================================================
+\section{Selected Source Code Excerpts}
+
+The following excerpts are taken from ten repository files in the 14 November 2026 snapshot. They show representative original implementation portions; omitted portions of each file are not reproduced. Unicode symbols in comments or display strings are rendered as ASCII equivalents for LaTeX portability.
+
+\subsection{FILE 1: Backend application entry point\\(backend/main.py)}
+
+\textit{Selected excerpt. Application lifespan, database connections, CORS configuration, and API route registration.}
+
+\begin{lstlisting}[style=python]
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Connect to DBs
+    await connect_to_mongo()
+    await connect_to_redis()
+    yield
+    # Shutdown: Close connections
+    await close_mongo_connection()
+    await close_redis_connection()
+# --- INITIALIZE APP ONCE ---
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    lifespan=lifespan,
+    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+)
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://nova-scan.vercel.app",
+]
+if getattr(settings, "FRONTEND_URL", None) and settings.FRONTEND_URL not in origins:
+    origins.append(settings.FRONTEND_URL)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# --- WIRE UP THE ROUTES ---
+app.include_router(api_router, prefix=settings.API_V1_STR)
+\end{lstlisting}
+
+\subsection{FILE 2: Authentication and security helpers\\(backend/app/core/security.py)}
+
+\textit{Selected source. Password hashing and complete JWT access-token creation.}
+
+\begin{lstlisting}[style=python]
+from datetime import datetime, timedelta
+from typing import Optional
+from jose import jwt
+from passlib.context import CryptContext
+from app.core.config import settings
+# Password Hashing Setup
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+# JWT Token Logic
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm="HS256")
+    return encoded_jwt
+\end{lstlisting}
+
+\subsection{FILE 3: Authentication endpoints\\(backend/app/api/v1/endpoints/auth.py)}
+
+\textit{Selected excerpt. Privacy-preserving password reset request, hashed reset tokens, expiry, and password update.}
+
+\begin{lstlisting}[style=python]
+@router.post("/forgot-password")
+async def forgot_password(payload: ForgotPasswordRequest):
+    """Always return the same response so account existence is not disclosed."""
+    generic_message = "If an account exists for that email, we've sent a password reset link."
+    db = get_database()
+    user = await db["users"].find_one({"email": payload.email})
+    if not user:
+        return {"message": generic_message}
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    expires_at = datetime.utcnow() + timedelta(minutes=30)
+    await db["users"].update_one(
+        {"_id": user["_id"]},
+        {"$set": {"password_reset_token_hash": token_hash, "password_reset_expires_at": expires_at}},
+    )
+    reset_url = f"{settings.FRONTEND_URL.rstrip('/')}/auth/reset-password?{urlencode({'token': raw_token})}"
+    sent = await send_password_reset_email(payload.email, reset_url)
+    if not sent:
+        logger.error("Password reset email could not be delivered for an account")
+    return {"message": generic_message}
+@router.post("/reset-password")
+async def reset_password(payload: ResetPasswordRequest):
+    token_hash = hashlib.sha256(payload.token.encode("utf-8")).hexdigest()
+    db = get_database()
+    user = await db["users"].find_one({
+        "password_reset_token_hash": token_hash,
+        "password_reset_expires_at": {"$gt": datetime.utcnow()},
+    })
+    if not user:
+        raise HTTPException(status_code=400, detail="This reset link is invalid or expired. Request a new one.")
+    result = await db["users"].update_one(
+        {
+            "_id": user["_id"],
+            "password_reset_token_hash": token_hash,
+            "password_reset_expires_at": {"$gt": datetime.utcnow()},
+        },
+        {
+            "$set": {"hashed_password": security.get_password_hash(payload.new_password)},
+            "$unset": {"password_reset_token_hash": "", "password_reset_expires_at": ""},
+        },
+    )
+    if result.modified_count != 1:
+        raise HTTPException(status_code=400, detail="This reset link is invalid or expired. Request a new one.")
+    return {"message": "Your password has been reset. You can now sign in."}
+\end{lstlisting}
+
+\textit{Additional excerpt: Authenticated password change}
+
+\begin{lstlisting}[style=python]
+async def change_my_password(
+    payload: PasswordChangeRequest,
+    current_user: User = Depends(get_current_user),
+):
+    db = get_database()
+    user = await db["users"].find_one({"email": current_user.email})
+    if not user:
+        raise HTTPException(status_code=404, detail="User account not found")
+    existing_hash = user.get("hashed_password")
+    if existing_hash:
+        if not payload.current_password:
+            raise HTTPException(status_code=400, detail="Enter your current password")
+        if not security.verify_password(payload.current_password, existing_hash):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+        if security.verify_password(payload.new_password, existing_hash):
+            raise HTTPException(status_code=400, detail="Choose a password different from your current one")
+    await db["users"].update_one(
+        {"_id": user["_id"]},
+        {"$set": {"hashed_password": security.get_password_hash(payload.new_password)}},
+    )
+    return {"message": "Password updated successfully"}
+\end{lstlisting}
+
+\subsection{FILE 4: GitHub webhook project scoping\\(backend/app/api/v1/endpoints/webhooks.py)}
+
+\textit{Selected excerpt. Resolves webhook credentials from the matching project and verifies the repository identity.}
+
+\begin{lstlisting}[style=python]
+async def get_org_credentials(org_id: str, repo_full_name: str = None, project_id: str = None):
+    """Fetch integration secrets from the matching project only; never org-wide."""
+    try:
+        db = get_database()
+        project = None
+        if project_id:
+            query = {"_id": project_id, "organization_id": org_id}
+            if ObjectId.is_valid(project_id):
+                query = {"_id": ObjectId(project_id), "organization_id": org_id}
+            project = await db["projects"].find_one(query)
+        elif repo_full_name:
+            owner, _, repo_name = repo_full_name.partition("/")
+            project = await db["projects"].find_one({
+                "organization_id": org_id,
+                "repo_owner": {"$regex": f"^{re.escape(owner)}$", "$options": "i"},
+                "repo_name": {"$regex": f"^{re.escape(repo_name)}$", "$options": "i"},
+            })
+        if not project:
+            logger.warning("No project found for integration event (%s)", repo_full_name or project_id)
+            return None
+        if repo_full_name:
+            expected_repo = f"{project.get('repo_owner', '')}/{project.get('repo_name', '')}"
+            if expected_repo.casefold() != repo_full_name.casefold():
+                logger.warning("Ignoring repo event that does not match project '%s'", project.get("name"))
+                return None
+        settings_data = project.get("settings", {})
+        oauth_credentials = await oauth_token_manager.credentials_for_project(org_id, str(project["_id"]))
+        # GitHub API access must come from the repo-scoped GitHub App token.
+        github_token = oauth_credentials.get("github_token")
+        return {
+            "project_id": str(project["_id"]),
+            "github_token": github_token,
+\end{lstlisting}
+
+\subsection{FILE 5: Risk analysis service\\(backend/app/services/intelligence/risk\_analyzer.py)}
+
+\textit{Selected excerpt. Builds event-specific analysis instructions, invokes the shared model service, and handles failures.}
+
+\begin{lstlisting}[style=python]
+from app.services.intelligence.llm_engine import generate_insight
+async def analyze_risk(event: dict) -> dict:
+    """
+    Analyzes an incoming event (GitHub PR, Jira Ticket, Slack Msg) using Gemini
+    to determine if it poses a risk to the project.
+    """
+    # 1. Select the Best Persona based on Source
+    if event["source"] == "github":
+        persona = "You are a Senior Staff Engineer. Look for breaking API changes, security flaws, risky dependencies, or lack of tests."
+    elif event["source"] == "jira":
+        persona = "You are a Technical Product Manager. Look for vague requirements, scope creep, sudden priority spikes, or unrealistic deadlines."
+    elif event["source"] == "slack":
+        persona = "You are an Agile Delivery Lead. Look for signs of team blocking, miscommunication, delays, or frustration."
+    else:
+        persona = "You are a Project Risk Analyst."
+    # 2. Construct the System Prompt
+    system_instruction = f"""
+    {persona}
+    Your task is to analyze the following project event and determine if it requires attention.
+    Output strictly in this JSON format:
+    {{
+        "is_risky": boolean,
+        "risk_score": integer (1-10),
+        "reason": "A concise, one-sentence explanation of the risk.",
+        "action_needed": "A short, actionable recommendation for the team."
+    }}
+    Rules:
+    - If risk_score < 4, set is_risky to false.
+    - If code changes involve database schemas, authentication, or payments, risk_score must be at least 8.
+    - Be concise.
+    """
+    # 3. Construct the User Content (The Data)
+    user_content = f"""
+    Event Source: {event['source']}
+    Action: {event['action']}
+    Actor: {event['actor']}
+    Summary: {event['summary']}
+    Full Content/Diff/Message:
+    {event['content']}
+    """
+    # 4. Call the Shared LLM Engine
+    try:
+        # We use the generic wrapper we built in llm_engine.py
+        analysis = await generate_insight(system_instruction, user_content)
+        return analysis
+    except Exception as e:
+        print(f"[WARN] Risk Analyzer Error: {e}")
+        # Fail safe (Default to safe so we don't spam alerts on errors)
+        return {
+            "is_risky": False,
+            "risk_score": 0,
+            "reason": "AI Analysis temporarily unavailable",
+            "action_needed": "Manual review recommended"
+        }
+\end{lstlisting}
+
+\subsection{FILE 6: Repository-scoped GitHub token\\(backend/app/services/integration/github\_app.py)}
+
+\textit{Selected excerpt. Requests a short-lived GitHub App token scoped to one repository and read permissions.}
+
+\begin{lstlisting}[style=python]
+async def create_repository_token(installation_id: str, repository_id: str) -> str:
+    """Mint an ephemeral token that can access exactly the supplied repository."""
+    headers = {
+        "Authorization": f"Bearer {_app_jwt()}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(
+            f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+            headers=headers,
+            json={
+                "repository_ids": [int(repository_id)],
+                "permissions": {"contents": "read", "pull_requests": "read"},
+            },
+        )
+    if response.status_code != 201:
+        raise RuntimeError(f"Could not create repository-scoped GitHub token ({response.status_code})")
+    token = response.json().get("token")
+    if not token:
+        raise RuntimeError("GitHub did not return an installation token")
+    return token
+\end{lstlisting}
+
+\textit{Additional excerpt: Builds the short-lived signed GitHub App JWT}
+
+\begin{lstlisting}[style=python]
+def _app_jwt() -> str:
+    encoded_key = getattr(settings, "GITHUB_APP_PRIVATE_KEY_BASE64", None)
+    raw_key = getattr(settings, "GITHUB_APP_PRIVATE_KEY", None)
+    if not (settings.GITHUB_APP_ID and (encoded_key or raw_key)):
+        raise RuntimeError("GitHub App ID and private key are not configured")
+    if encoded_key:
+        try:
+            private_key = base64.b64decode(re.sub(r"\s+", "", str(encoded_key)), validate=True).decode("utf-8-sig")
+        except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
+            raise RuntimeError("GITHUB_APP_PRIVATE_KEY_BASE64 must be Base64-encoded UTF-8 PEM file contents") from exc
+    else:
+        private_key = str(raw_key).strip()
+    if len(private_key) >= 2 and private_key[0] == private_key[-1] and private_key[0] in ("\"", "'"):
+        private_key = private_key[1:-1].strip()
+    private_key = (
+        private_key
+        .replace("\\r\\n", "\n")
+        .replace("\\n", "\n")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+    )
+    # Render and other environment managers may preserve a pasted PEM as one
+    # long line. Canonicalize only a recognizable, unencrypted PEM block.
+    pem = re.search(r"-----BEGIN ((?:RSA |EC )?PRIVATE KEY)-----([\s\S]*?)-----END \1-----", private_key)
+    if pem:
+        body = re.sub(r"\s+", "", pem.group(2))
+        if body and re.fullmatch(r"[A-Za-z0-9+/=]+", body):
+            private_key = (
+                f"-----BEGIN {pem.group(1)}-----\n"
+                + "\n".join(body[index:index + 64] for index in range(0, len(body), 64))
+                + f"\n-----END {pem.group(1)}-----\n"
+            )
+    now = datetime.now(timezone.utc)
+    try:
+        return jwt.encode(
+            {"iat": int((now - timedelta(seconds=30)).timestamp()),
+             "exp": int((now + timedelta(minutes=8)).timestamp()),
+             "iss": settings.GITHUB_APP_ID},
+            private_key,
+            algorithm="RS256",
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "GitHub App private key is not valid PEM. In Render, replace GITHUB_APP_PRIVATE_KEY with the complete, unencrypted .pem file contents, including both BEGIN/END lines."
+        ) from exc
+\end{lstlisting}
+
+\subsection{FILE 7: Google Calendar OAuth state validation\\(backend/app/api/v1/endpoints/standup.py)}
+
+\textit{Selected excerpt. Signs and validates OAuth state and restricts callback and frontend return URLs.}
+
+\begin{lstlisting}[style=python]
+def _google_state_encode(user_id: str, org_id: str, team_id: str, redirect_uri: str, frontend_origin: str, include_drive: bool) -> str:
+    return jwt.encode({"sub": str(user_id), "org_id": str(org_id), "team_id": team_id, "redirect_uri": redirect_uri, "frontend_origin": frontend_origin, "include_drive": include_drive, "exp": datetime.utcnow() + timedelta(minutes=15)}, settings.SECRET_KEY, algorithm="HS256")
+async def _google_state_decode(state: str):
+    try:
+        claims = jwt.decode(state, settings.SECRET_KEY, algorithms=["HS256"])
+    except JWTError as exc:
+        raise HTTPException(status_code=400, detail="Google Calendar authorization expired. Start the connection again.") from exc
+    if not claims.get("sub") or not claims.get("org_id") or not claims.get("team_id") or not claims.get("redirect_uri") or not claims.get("frontend_origin"):
+        raise HTTPException(status_code=400, detail="Invalid Google Calendar authorization state")
+    redirect_uri = claims["redirect_uri"]
+    allowed_redirects = {settings.google_calendar_redirect}
+    parsed_redirect = urlparse(redirect_uri)
+    if parsed_redirect.scheme == "http" and parsed_redirect.hostname in ("localhost", "127.0.0.1", "::1") and parsed_redirect.path == "/api/v1/standup/google/callback" and not parsed_redirect.query and not parsed_redirect.fragment:
+        allowed_redirects.add(redirect_uri)
+    if redirect_uri not in allowed_redirects:
+        raise HTTPException(status_code=400, detail="Google Calendar callback URI is not allowed")
+    frontend_origin = claims["frontend_origin"].rstrip("/")
+    parsed_frontend = urlparse(frontend_origin)
+    if frontend_origin != settings.FRONTEND_URL.rstrip("/") and not (parsed_frontend.scheme == "http" and parsed_frontend.hostname in ("localhost", "127.0.0.1") and parsed_frontend.port == 3000 and not parsed_frontend.path and not parsed_frontend.query and not parsed_frontend.fragment):
+        raise HTTPException(status_code=400, detail="Google Calendar return URL is not allowed")
+    return claims
+\end{lstlisting}
+
+\textit{Additional excerpt: Validates the callback and returns the user to standups}
+
+\begin{lstlisting}[style=python]
+async def google_calendar_callback(code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
+    frontend = settings.FRONTEND_URL.rstrip("/") + "/dashboard/standup"
+    if error or not code or not state:
+        return RedirectResponse(frontend + "?" + urlencode({"google": "error", "message": error or "Authorization was cancelled"}))
+    try:
+        claims = await _google_state_decode(state)
+        frontend = claims["frontend_origin"].rstrip("/") + "/dashboard/standup"
+        db = get_database()
+        user = await db["users"].find_one({"_id": {"$in": [claims["sub"], ObjectId(claims["sub"])]} if ObjectId.is_valid(claims["sub"]) else claims["sub"]})
+        if not user or str(user.get("current_org_id")) != str(claims["org_id"]):
+            raise HTTPException(status_code=403, detail="Google Calendar account no longer belongs to this organization")
+        team = await _find_team_for_standup(db, claims["org_id"], claims["team_id"])
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+        callback_user = User(**{**user, "_id": str(user.get("_id"))})
+        if not _team_manage_allowed(team, callback_user):
+            raise HTTPException(status_code=403, detail="You no longer have permission to connect this team's calendar")
+        token_data = await google_calendar.exchange_code(code, claims["redirect_uri"])
+        google_email = await google_calendar.google_account_email(token_data.get("access_token", ""))
+        await google_calendar.save_connection(claims["org_id"], claims["sub"], token_data)
+        await db["google_calendar_connections"].update_one(
+            {"org_id": claims["org_id"], "user_id": claims["sub"]},
+            {"$set": {"email": google_email, "app_user_email": user.get("email"), "full_name": user.get("full_name") or user.get("name")}},
+        )
+        return RedirectResponse(frontend + "?" + urlencode({"google": "drive_connected" if claims.get("include_drive") else "connected", "team_id": claims["team_id"]}))
+    except HTTPException as exc:
+        logger.warning("Google Calendar OAuth callback rejected: %s", exc.detail)
+        return RedirectResponse(frontend + "?" + urlencode({"google": "error", "message": exc.detail}))
+    except (ValueError, httpx.HTTPError) as exc:
+        logger.warning("Google Calendar OAuth callback failed: %s", exc)
+        return RedirectResponse(frontend + "?google=error&message=Google+Calendar+connection+failed")
+\end{lstlisting}
+
+\subsection{FILE 8: Standup transcript analysis\\(backend/app/services/intelligence/standup\_agent.py)}
+
+\textit{Selected excerpt. Provides team context to the model and extracts tasks, events, blockers, and a summary.}
+
+\begin{lstlisting}[style=python]
+import google.generativeai as genai
+import os
+import json
+import logging
+from typing import List, Dict
+from app.models.user import User
+# Configure Logging
+logger = logging.getLogger(__name__)
+# Load API Key
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+MODEL_NAME = "gemini-2.5-flash-lite"
+async def analyze_standup(transcript: str, members: List[User], project_name: str) -> Dict:
+    """
+    Analyzes a standup transcript to identify speakers, action items, events, and blockers.
+    """
+    if not GEMINI_API_KEY:
+        logger.error("[ERROR] GEMINI_API_KEY is missing!")
+        return {"error": "AI Service Unavailable"}
+    # Create a mapping string for the LLM
+    member_list_str = "\n".join([f"- {u.full_name} (ID: {u.id}, Email: {u.email})" for u in members])
+    prompt = f"""
+    You are an AI Project Manager. Analyze this Daily Standup Transcript for project "{project_name}".
+    Match speakers in the text to these Team Members:
+    {member_list_str}
+    TRANSCRIPT:
+    {transcript}
+    ---------------------------------------------------
+    Task:
+    1. Identify who is speaking. Map names in text to the provided Team Members.
+    2. Extract 'tasks' (Action Items). Assign to the correct User ID.
+    3. Extract 'events' (Deadlines, Meetings). accurate dates/times if mentioned.
+    4. Extract 'blockers' (Who is stuck and why).
+    5. Generate a 'summary' (Markdown format) for Slack.
+    Output JSON ONLY:
+    {{
+        "tasks": [
+            {{ "title": "...", "description": "...", "assignee_id": "<User ID from list>", "assignee_name": "..." }}
+        ],
+        "events": [
+            {{ "title": "...", "date": "YYYY-MM-DD or 'Today'", "time": "HH:MM", "description": "..." }}
+        ],
+        "blockers": [
+            {{ "user_id": "<User ID>", "user_name": "...", "issue": "..." }}
+        ],
+        "summary": "### [START] Daily Standup Summary - {project_name}\\n\\n**Highlights**... "
+    }}
+    """
+    try:
+        model = genai.GenerativeModel(MODEL_NAME)
+        response = model.generate_content(prompt)
+        text_response = response.text.strip()
+        if text_response.startswith("```"):
+            text_response = text_response.strip("`").replace("json", "").strip()
+        return json.loads(text_response)
+    except Exception as e:
+        logger.error(f"[ERROR] Standup Analysis Failed: {e}")
+        return {"error": str(e)}
+\end{lstlisting}
+
+\subsection{FILE 9: Notion audit report construction\\(backend/app/services/delivery/notion\_bot.py)}
+
+\textit{Selected excerpt. Builds report blocks and creates a page under the selected parent page or database.}
+
+\begin{lstlisting}[style=python]
+        children = [{
+            "object": "block", "type": "callout", "callout": {
+                "rich_text": self._rich_text(f"NovaScan risk audit | {self._get_risk_label(risk_score)} | Score {risk_score}/10"),
+                "icon": {"type": "emoji", "emoji": "\U0001F4CB"},
+                "color": "red_background" if risk_score >= 7 else "orange_background",
+            }
+        }, heading("Executive risk assessment"), *paragraphs(analysis.get("reason") or analysis.get("summary")), heading("Recommended actions")]
+        for item in recommendations:
+            children.append({"object": "block", "type": "bulleted_list_item", "bulleted_list_item": {"rich_text": self._rich_text(item)}})
+        for key, label in (("impact", "Potential impact"), ("affected_areas", "Affected areas"), ("evidence", "Evidence"), ("additional_recommendations", "Additional recommendations")):
+            value = analysis.get(key)
+            if value:
+                children.append(heading(label, 3))
+                for item in value if isinstance(value, list) else [value]:
+                    children.append({"object": "block", "type": "bulleted_list_item", "bulleted_list_item": {"rich_text": self._rich_text(item)}})
+        children.extend([
+            heading("Event details"),
+            *paragraphs(f"Repository: {context.get('repo') or 'Unknown'}"),
+            *paragraphs(f"Pull request: #{context.get('pr_id') or 'N/A'} | {context.get('title') or event_summary}"),
+            *paragraphs(f"Author: {context.get('author') or 'Unknown'}"),
+            *paragraphs(f"Detected at (UTC): {created_at}"),
+        ])
+        if isinstance(pr_url, str) and pr_url.startswith("http"):
+            children.append({"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": "Open source pull request", "link": {"url": pr_url}}}]}})
+        if parent_page_id:
+            payload = {
+                "parent": {"page_id": parent_page_id},
+                "properties": {"title": {"title": [{"type": "text", "text": {"content": title}}]}},
+                "children": children[:100],
+            }
+\end{lstlisting}
+
+\textit{Additional excerpt: Creates the parented report and handles Notion API responses}
+
+\begin{lstlisting}[style=python]
+        else:
+            payload = {
+                "parent": {"database_id": database_id},
+                "properties": {
+                    "Name": {"title": [{"text": {"content": title}}]},
+                    "Risk Level": {"select": {"name": self._get_risk_label(risk_score)}},
+                    "Risk Score": {"number": risk_score},
+                    "Status": ({"select": {"name": "In progress"}} if database_status_type == "select" else {"status": {"name": "In Progress"}}),
+                    "Source PR": {"url": pr_url if isinstance(pr_url, str) and pr_url.startswith("http") else "https://github.com"},
+                    "Detected At": {"date": {"start": created_at}},
+                },
+                "children": children[:100],
+            }
+        try:
+            async with httpx.AsyncClient(timeout=25.0) as client:
+                response = await client.post(f"{self.base_url}/pages", headers=self._get_headers(notion_token), json=payload)
+                if response.status_code not in (200, 201):
+                    logger.error("Notion audit page creation failed (%s): %s", response.status_code, response.text[:500])
+                    return None
+                return response.json()
+        except Exception as exc:
+            logger.error("Notion audit page creation failed: %s", exc)
+            return None
+\end{lstlisting}
+
+\subsection{FILE 10: Global timezone display helpers\\(frontend/app/dashboard/standup/page.tsx)}
+
+\textit{Selected excerpt. Formats local times and validates IANA timezone identifiers in the standup UI.}
+
+\begin{lstlisting}[style=typescript]
+function timezoneOffset(timeZone: string) {
+  try { return new Intl.DateTimeFormat(undefined, { timeZone, timeZoneName: "shortOffset" }).formatToParts(new Date()).find((part) => part.type === "timeZoneName")?.value || "GMT"; }
+  catch { return "GMT"; }
+}
+function formattedLocalTime(timeZone: string) {
+  try { return new Intl.DateTimeFormat(undefined, { timeZone, hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date()); }
+  catch { return ""; }
+}
+function isValidTimeZone(timeZone: string) {
+  try { new Intl.DateTimeFormat(undefined, { timeZone }).format(); return true; }
+  catch { return false; }
+}
+\end{lstlisting}
+
+\newpage
+
+\end{document}

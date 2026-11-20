@@ -36,20 +36,35 @@ async def get_org_credentials(org_id: str, repo_full_name: str = None, project_i
         db = get_database()
         project = None
         if project_id:
-            query = {"_id": project_id, "organization_id": org_id}
-            if ObjectId.is_valid(project_id):
-                query = {"_id": ObjectId(project_id), "organization_id": org_id}
+            project_id_values = [str(project_id)]
+            if ObjectId.is_valid(str(project_id)):
+                project_id_values.append(ObjectId(str(project_id)))
+            org_id_values = [str(org_id)]
+            if ObjectId.is_valid(str(org_id)):
+                org_id_values.append(ObjectId(str(org_id)))
+            query = {
+                "_id": {"$in": project_id_values},
+                "organization_id": {"$in": org_id_values},
+            }
             project = await db["projects"].find_one(query)
         elif repo_full_name:
             owner, _, repo_name = repo_full_name.partition("/")
+            org_id_values = [str(org_id)]
+            if ObjectId.is_valid(str(org_id)):
+                org_id_values.append(ObjectId(str(org_id)))
             project = await db["projects"].find_one({
-                "organization_id": org_id,
+                "organization_id": {"$in": org_id_values},
                 "repo_owner": {"$regex": f"^{re.escape(owner)}$", "$options": "i"},
                 "repo_name": {"$regex": f"^{re.escape(repo_name)}$", "$options": "i"},
             })
 
         if not project:
-            logger.warning("No project found for integration event (%s)", repo_full_name or project_id)
+            logger.warning(
+                "No project found for integration event (org_id=%s, project_id=%s, repo=%s)",
+                org_id,
+                project_id,
+                repo_full_name,
+            )
             return None
         if repo_full_name:
             expected_repo = f"{project.get('repo_owner', '')}/{project.get('repo_name', '')}"
@@ -104,6 +119,42 @@ async def save_scan_to_db(org_id, repo, pr_id, risk_data, pr_url, pr_title="Unti
         logger.info(f"💾 Scan saved: {pr_title} by {pr_author}")
     except Exception as e:
         logger.error(f"❌ DB Save Error: {e}")
+
+# Register the static GitHub App route before the legacy /github/{org_id}
+# route below. Otherwise, the path segment "app" is consumed as org_id.
+@router.post("/github/app")
+async def handle_github_app_webhook(request: Request):
+    """Verify and route GitHub App events to the exact linked project repository."""
+    webhook_secret = getattr(settings, "GITHUB_WEBHOOK_SECRET", None)
+    if not (webhook_secret and github_app_configured()):
+        return {"status": "disabled"}
+    body = await request.body()
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    expected = "sha256=" + hmac.new(webhook_secret.encode(), body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Invalid GitHub webhook signature")
+    if request.headers.get("X-GitHub-Event") != "pull_request":
+        return {"status": "ignored"}
+    payload = json.loads(body)
+    installation_id = str((payload.get("installation") or {}).get("id") or "")
+    repo = payload.get("repository") or {}
+    repo_name, repo_id = repo.get("full_name") or "", str(repo.get("id") or "")
+    if not (installation_id and repo_name and repo_id):
+        return {"status": "skipped", "message": "Missing installation or repository identity"}
+    db = get_database()
+    if db is None:
+        return {"status": "error", "message": "Database unavailable"}
+    matches = await db["oauth_connections"].find({
+        "provider": "github", "installation_id": installation_id, "repository_id": repo_id,
+    }).to_list(100)
+    for connection in matches:
+        if (connection.get("repository_full_name") or "").casefold() == repo_name.casefold():
+            return await _process_github_app_event(
+                str(connection["org_id"]), str(connection["project_id"]), payload
+            )
+    return {"status": "ignored", "message": "Repository is not linked to a NovaScan project"}
+
 
 # --- WEBHOOK HANDLER ---
 @router.post("/github/{org_id}")
@@ -178,40 +229,6 @@ async def handle_github_webhook(org_id: str, request: Request, project_id: Optio
         logger.error(f"❌ Error in webhook: {e}")
         return {"status": "error", "message": str(e)}
 
-@router.post("/github/app")
-async def handle_github_app_webhook(request: Request):
-    """Verify and route GitHub App events to the exact linked project repository."""
-    webhook_secret = getattr(settings, "GITHUB_WEBHOOK_SECRET", None)
-    if not (webhook_secret and github_app_configured()):
-        return {"status": "disabled"}
-    body = await request.body()
-    signature = request.headers.get("X-Hub-Signature-256", "")
-    expected = "sha256=" + hmac.new(webhook_secret.encode(), body, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(signature, expected):
-        from fastapi import HTTPException
-        raise HTTPException(status_code=401, detail="Invalid GitHub webhook signature")
-    if request.headers.get("X-GitHub-Event") != "pull_request":
-        return {"status": "ignored"}
-    payload = json.loads(body)
-    installation_id = str((payload.get("installation") or {}).get("id") or "")
-    repo = payload.get("repository") or {}
-    repo_name, repo_id = repo.get("full_name") or "", str(repo.get("id") or "")
-    if not (installation_id and repo_name and repo_id):
-        return {"status": "skipped", "message": "Missing installation or repository identity"}
-    db = get_database()
-    if db is None:
-        return {"status": "error", "message": "Database unavailable"}
-    matches = await db["oauth_connections"].find({
-        "provider": "github", "installation_id": installation_id, "repository_id": repo_id,
-    }).to_list(100)
-    for connection in matches:
-        if (connection.get("repository_full_name") or "").casefold() == repo_name.casefold():
-            return await _process_github_app_event(
-                str(connection["org_id"]), str(connection["project_id"]), payload
-            )
-    return {"status": "ignored", "message": "Repository is not linked to a NovaScan project"}
-
-
 async def _process_github_app_event(org_id: str, project_id: str, payload: dict):
     if payload.get("action") not in ("opened", "synchronize", "reopened"):
         return {"status": "ignored"}
@@ -221,7 +238,7 @@ async def _process_github_app_event(org_id: str, project_id: str, payload: dict)
         return {"status": "skipped", "message": "Missing pull request or repository"}
     creds = await get_org_credentials(org_id, repo_name, project_id)
     if not creds or not creds.get("github_token"):
-        return {"status": "error", "message": "Repository-scoped GitHub credentials unavailable"}
+        return {"status": "error", "message": "Project/repository credentials could not be resolved for this installation"}
     async with httpx.AsyncClient() as client:
         response = await client.get(
             pr.get("diff_url"),
